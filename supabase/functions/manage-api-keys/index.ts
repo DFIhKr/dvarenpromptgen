@@ -1,42 +1,11 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { encryptKey, decryptKeyWithFallback, maskKey } from "../_shared/encryption.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
-
-// Simple XOR-based encryption for API keys
-function encryptKey(key: string, secret: string): string {
-  const encoder = new TextEncoder();
-  const keyBytes = encoder.encode(key);
-  const secretBytes = encoder.encode(secret);
-  const encrypted = new Uint8Array(keyBytes.length);
-  
-  for (let i = 0; i < keyBytes.length; i++) {
-    encrypted[i] = keyBytes[i] ^ secretBytes[i % secretBytes.length];
-  }
-  
-  return btoa(String.fromCharCode(...encrypted));
-}
-
-function decryptKey(encrypted: string, secret: string): string {
-  const decoder = new TextDecoder();
-  const encryptedBytes = Uint8Array.from(atob(encrypted), c => c.charCodeAt(0));
-  const secretBytes = new TextEncoder().encode(secret);
-  const decrypted = new Uint8Array(encryptedBytes.length);
-  
-  for (let i = 0; i < encryptedBytes.length; i++) {
-    decrypted[i] = encryptedBytes[i] ^ secretBytes[i % secretBytes.length];
-  }
-  
-  return decoder.decode(decrypted);
-}
-
-function maskKey(key: string): string {
-  if (key.length <= 8) return "****";
-  return `${key.slice(0, 4)}****${key.slice(-4)}`;
-}
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -68,7 +37,16 @@ serve(async (req) => {
       );
     }
 
-    const { action, apiKey, label, keyId } = await req.json();
+    const { action, apiKey, label } = await req.json();
+
+    // Validate action parameter
+    const validActions = ["add", "get_decrypted", "list", "delete", "toggle"];
+    if (!action || typeof action !== "string" || !validActions.includes(action)) {
+      return new Response(
+        JSON.stringify({ error: "Invalid action" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
 
     if (action === "add") {
       // Check key count
@@ -92,7 +70,21 @@ serve(async (req) => {
         );
       }
 
-      const encryptedKey = encryptKey(apiKey, encryptionKey);
+      // Validate API key length (Groq keys are typically 50+ characters)
+      if (apiKey.length < 20 || apiKey.length > 200) {
+        return new Response(
+          JSON.stringify({ error: "Invalid API key length" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      // Validate label if provided
+      const sanitizedLabel = label 
+        ? String(label).slice(0, 50).replace(/[<>&"']/g, '') 
+        : null;
+
+      // Encrypt with AES-256-GCM
+      const encryptedKey = await encryptKey(apiKey, encryptionKey);
       const keyHint = maskKey(apiKey);
 
       const { error: insertError } = await supabase
@@ -101,7 +93,7 @@ serve(async (req) => {
           user_id: user.id,
           encrypted_key: encryptedKey,
           key_hint: keyHint,
-          label: label || null,
+          label: sanitizedLabel,
           provider: "groq",
           is_active: true,
         });
@@ -137,7 +129,9 @@ serve(async (req) => {
 
       // Return a random active key (simple rotation)
       const randomKey = keys[Math.floor(Math.random() * keys.length)];
-      const decryptedKey = decryptKey(randomKey.encrypted_key, encryptionKey);
+      
+      // Use fallback decryption to support both old XOR and new AES-GCM keys
+      const decryptedKey = await decryptKeyWithFallback(randomKey.encrypted_key, encryptionKey);
 
       return new Response(
         JSON.stringify({ apiKey: decryptedKey, keyId: randomKey.id }),
@@ -152,7 +146,7 @@ serve(async (req) => {
   } catch (error) {
     console.error("Error:", error);
     return new Response(
-      JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }),
+      JSON.stringify({ error: "An unexpected error occurred" }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
