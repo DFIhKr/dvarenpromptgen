@@ -28,6 +28,7 @@ interface GeneratedPrompt {
 
 interface JsonOutput {
   theme: string;
+  style_mode: string;
   length_rule: {
     min_words: number;
     max_words: number;
@@ -42,15 +43,30 @@ const MODELS = [
   { value: 'llama-3.1-8b-instant', label: 'Llama 3.1 (8B)' },
 ];
 
+const STYLE_MODES = [
+  { value: 'free_illustration', label: 'Free Illustration' },
+  { value: 'typography', label: 'Typography' },
+  { value: 'glitch_typography', label: 'Glitch Typography' },
+  { value: 'ui_tech_screen', label: 'UI / Tech Screen' },
+];
+
+const OUTPUT_FORMATS = [
+  { value: 'json', label: 'JSON' },
+  { value: 'text', label: 'TEXT' },
+];
+
 const BATCH_SIZE = 20;
 
 export function PromptGenerator({ hasActiveKeys }: PromptGeneratorProps) {
   const [theme, setTheme] = useState('cyberpunk neon');
   const [model, setModel] = useState(MODELS[0].value);
+  const [styleMode, setStyleMode] = useState(STYLE_MODES[2].value); // Default to glitch_typography
+  const [outputFormat, setOutputFormat] = useState<'json' | 'text'>('json');
   const [promptCount, setPromptCount] = useState('20');
   const [minWords, setMinWords] = useState(22);
   const [maxWords, setMaxWords] = useState(35);
   const [output, setOutput] = useState<JsonOutput | null>(null);
+  const [textOutput, setTextOutput] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
@@ -79,12 +95,16 @@ export function PromptGenerator({ hasActiveKeys }: PromptGeneratorProps) {
     }
   };
 
+  const getStyleModeLabel = (value: string) => {
+    return STYLE_MODES.find(s => s.value === value)?.label || value;
+  };
+
   const handleGenerate = async () => {
     if (!theme.trim()) {
       toast({
         variant: 'destructive',
         title: 'Theme required',
-        description: 'Please enter a theme for your glitch typography prompts.',
+        description: 'Please enter a theme for your prompts.',
       });
       return;
     }
@@ -101,6 +121,7 @@ export function PromptGenerator({ hasActiveKeys }: PromptGeneratorProps) {
 
     setLoading(true);
     setOutput(null);
+    setTextOutput('');
     
     setProgress({ current: 0, total: count });
 
@@ -109,6 +130,8 @@ export function PromptGenerator({ hasActiveKeys }: PromptGeneratorProps) {
         body: {
           theme: theme.trim(),
           model,
+          styleMode,
+          outputFormat,
           count,
           minWords,
           maxWords,
@@ -121,31 +144,42 @@ export function PromptGenerator({ hasActiveKeys }: PromptGeneratorProps) {
         throw new Error(data.error);
       }
 
-      const jsonOutput: JsonOutput = {
-        theme: theme.trim(),
-        length_rule: {
-          min_words: minWords,
-          max_words: maxWords,
-        },
-        prompts: (data.prompts || []).map((text: string, index: number) => ({
-          id: index + 1,
-          text,
-        })),
-      };
+      if (outputFormat === 'text') {
+        // TEXT format: numbered list
+        const textList = (data.prompts || [])
+          .map((text: string, index: number) => `${index + 1}. ${text}`)
+          .join('\n');
+        setTextOutput(textList);
+        setProgress({ current: (data.prompts || []).length, total: count });
+      } else {
+        // JSON format
+        const jsonOutput: JsonOutput = {
+          theme: theme.trim(),
+          style_mode: getStyleModeLabel(styleMode),
+          length_rule: {
+            min_words: minWords,
+            max_words: maxWords,
+          },
+          prompts: (data.prompts || []).map((text: string, index: number) => ({
+            id: index + 1,
+            text,
+          })),
+        };
 
-      setOutput(jsonOutput);
-      setProgress({ current: jsonOutput.prompts.length, total: count });
+        setOutput(jsonOutput);
+        setProgress({ current: jsonOutput.prompts.length, total: count });
+      }
 
       if (data.partial) {
         toast({
           variant: 'default',
           title: 'Partial results',
-          description: data.message || `Generated ${jsonOutput.prompts.length} of ${count} prompts.`,
+          description: data.message || `Generated ${(data.prompts || []).length} of ${count} prompts.`,
         });
       } else {
         toast({
           title: 'Generation complete',
-          description: `Successfully generated ${jsonOutput.prompts.length} glitch typography prompts.`,
+          description: `Successfully generated ${(data.prompts || []).length} prompts.`,
         });
       }
     } catch (error) {
@@ -166,29 +200,54 @@ export function PromptGenerator({ hasActiveKeys }: PromptGeneratorProps) {
     setTimeout(() => setCopiedIndex(null), 2000);
   };
 
-  const copyAsJson = async () => {
-    if (!output) return;
-    await navigator.clipboard.writeText(JSON.stringify(output, null, 2));
-    toast({
-      title: 'Copied!',
-      description: 'JSON output copied to clipboard.',
-    });
+  const copyOutput = async () => {
+    if (outputFormat === 'text') {
+      if (!textOutput) return;
+      await navigator.clipboard.writeText(textOutput);
+      toast({
+        title: 'Copied!',
+        description: 'Text output copied to clipboard.',
+      });
+    } else {
+      if (!output) return;
+      await navigator.clipboard.writeText(JSON.stringify(output, null, 2));
+      toast({
+        title: 'Copied!',
+        description: 'JSON output copied to clipboard.',
+      });
+    }
   };
 
-  const downloadJson = () => {
-    if (!output) return;
-    const blob = new Blob([JSON.stringify(output, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `glitch-prompts-${theme.replace(/\s+/g, '-').toLowerCase()}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+  const downloadOutput = () => {
+    const styleSuffix = styleMode.replace(/_/g, '-');
+    const filename = `prompts-${styleSuffix}-${theme.replace(/\s+/g, '-').toLowerCase()}`;
+    
+    if (outputFormat === 'text') {
+      if (!textOutput) return;
+      const blob = new Blob([textOutput], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${filename}.txt`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } else {
+      if (!output) return;
+      const blob = new Blob([JSON.stringify(output, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${filename}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
   };
 
   const totalBatches = Math.ceil((parseInt(promptCount) || 0) / BATCH_SIZE);
   const isLargeGeneration = (parseInt(promptCount) || 0) > BATCH_SIZE;
   const progressPercent = progress.total > 0 ? (progress.current / progress.total) * 100 : 0;
+  const hasOutput = outputFormat === 'text' ? textOutput.length > 0 : (output?.prompts.length || 0) > 0;
+  const outputCount = outputFormat === 'text' ? textOutput.split('\n').filter(l => l.trim()).length : (output?.prompts.length || 0);
 
   return (
     <div className="space-y-6">
@@ -215,8 +274,43 @@ export function PromptGenerator({ hasActiveKeys }: PromptGeneratorProps) {
               disabled={!hasActiveKeys || loading}
             />
             <p className="text-xs text-muted-foreground">
-              Focus: Glitch typography with digital effects on dark backgrounds
+              Describe the visual theme for your prompts
             </p>
+          </div>
+
+          {/* Style Mode and Output Format */}
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="styleMode">Style Mode</Label>
+              <Select value={styleMode} onValueChange={setStyleMode} disabled={!hasActiveKeys || loading}>
+                <SelectTrigger className="h-11 bg-muted/50 border-border">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {STYLE_MODES.map((s) => (
+                    <SelectItem key={s.value} value={s.value}>
+                      {s.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="outputFormat">Output Format</Label>
+              <Select value={outputFormat} onValueChange={(v) => setOutputFormat(v as 'json' | 'text')} disabled={!hasActiveKeys || loading}>
+                <SelectTrigger className="h-11 bg-muted/50 border-border">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {OUTPUT_FORMATS.map((f) => (
+                    <SelectItem key={f.value} value={f.value}>
+                      {f.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
@@ -336,22 +430,22 @@ export function PromptGenerator({ hasActiveKeys }: PromptGeneratorProps) {
         {/* Output Section */}
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <Label>Generated Prompts ({output?.prompts.length || 0})</Label>
-            {output && output.prompts.length > 0 && (
+            <Label>Generated Prompts ({outputCount})</Label>
+            {hasOutput && (
               <div className="flex gap-2">
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={copyAsJson}
+                  onClick={copyOutput}
                   className="text-muted-foreground hover:text-foreground"
                 >
                   <Copy className="h-4 w-4 mr-1" />
-                  Copy JSON
+                  Copy {outputFormat.toUpperCase()}
                 </Button>
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={downloadJson}
+                  onClick={downloadOutput}
                   className="text-muted-foreground hover:text-foreground"
                 >
                   <Download className="h-4 w-4 mr-1" />
@@ -363,12 +457,12 @@ export function PromptGenerator({ hasActiveKeys }: PromptGeneratorProps) {
 
           <ScrollArea className="h-[500px] rounded-xl border border-border bg-muted/30">
             <div className="p-4">
-              {!output || output.prompts.length === 0 ? (
+              {!hasOutput ? (
                 <div className="flex flex-col items-center justify-center h-[450px] text-muted-foreground">
                   <Sparkles className="h-12 w-12 mb-3 opacity-50" />
-                  <p className="text-sm font-medium">Glitch Typography Prompts</p>
+                  <p className="text-sm font-medium">{getStyleModeLabel(styleMode)} Prompts</p>
                   <p className="text-xs mt-2 text-center max-w-[220px]">
-                    JSON output with {minWords}–{maxWords} word prompts
+                    {outputFormat.toUpperCase()} output with {minWords}–{maxWords} word prompts
                   </p>
                   {isLargeGeneration && (
                     <p className="text-xs mt-2 text-center max-w-[200px]">
@@ -376,7 +470,34 @@ export function PromptGenerator({ hasActiveKeys }: PromptGeneratorProps) {
                     </p>
                   )}
                 </div>
+              ) : outputFormat === 'text' ? (
+                /* TEXT Output */
+                <div className="space-y-2">
+                  {textOutput.split('\n').filter(l => l.trim()).map((line, index) => (
+                    <div
+                      key={index}
+                      className="group p-3 rounded-lg bg-card border border-border/50 hover:border-primary/30 transition-colors"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="flex-1 text-sm text-foreground">{line}</p>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => copyPrompt(line.replace(/^\d+\.\s*/, ''), index)}
+                          className="h-7 w-7 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                          {copiedIndex === index ? (
+                            <Check className="h-4 w-4 text-primary" />
+                          ) : (
+                            <Copy className="h-4 w-4" />
+                          )}
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               ) : (
+                /* JSON Output */
                 <div className="space-y-3">
                   {/* JSON Header Display */}
                   <div className="p-3 rounded-lg bg-card border border-border/50 font-mono text-xs">
@@ -386,7 +507,13 @@ export function PromptGenerator({ hasActiveKeys }: PromptGeneratorProps) {
                     <div className="ml-4">
                       <span className="text-primary">"theme"</span>
                       <span className="text-muted-foreground">: </span>
-                      <span className="text-accent-foreground">"{output.theme}"</span>
+                      <span className="text-accent-foreground">"{output?.theme}"</span>
+                      <span className="text-muted-foreground">,</span>
+                    </div>
+                    <div className="ml-4">
+                      <span className="text-primary">"style_mode"</span>
+                      <span className="text-muted-foreground">: </span>
+                      <span className="text-accent-foreground">"{output?.style_mode}"</span>
                       <span className="text-muted-foreground">,</span>
                     </div>
                     <div className="ml-4">
@@ -394,11 +521,11 @@ export function PromptGenerator({ hasActiveKeys }: PromptGeneratorProps) {
                       <span className="text-muted-foreground">: {'{'} </span>
                       <span className="text-primary">"min_words"</span>
                       <span className="text-muted-foreground">: </span>
-                      <span className="text-foreground">{output.length_rule.min_words}</span>
+                      <span className="text-foreground">{output?.length_rule.min_words}</span>
                       <span className="text-muted-foreground">, </span>
                       <span className="text-primary">"max_words"</span>
                       <span className="text-muted-foreground">: </span>
-                      <span className="text-foreground">{output.length_rule.max_words}</span>
+                      <span className="text-foreground">{output?.length_rule.max_words}</span>
                       <span className="text-muted-foreground"> {'}'}</span>
                       <span className="text-muted-foreground">,</span>
                     </div>
@@ -409,7 +536,7 @@ export function PromptGenerator({ hasActiveKeys }: PromptGeneratorProps) {
                   </div>
 
                   {/* Prompts List */}
-                  {output.prompts.map((prompt, index) => (
+                  {output?.prompts.map((prompt, index) => (
                     <div
                       key={prompt.id}
                       className="group p-3 rounded-lg bg-card border border-border/50 hover:border-primary/30 transition-colors"
@@ -429,7 +556,7 @@ export function PromptGenerator({ hasActiveKeys }: PromptGeneratorProps) {
                             <span className="text-accent-foreground break-words">"{prompt.text}"</span>
                           </div>
                           <span className="text-muted-foreground ml-6">{'}'}</span>
-                          {index < output.prompts.length - 1 && (
+                          {index < (output?.prompts.length || 0) - 1 && (
                             <span className="text-muted-foreground">,</span>
                           )}
                         </div>
