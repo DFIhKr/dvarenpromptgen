@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { decryptKeyWithFallback } from "../_shared/encryption.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -11,18 +12,11 @@ const BATCH_DELAY_MS = 1200;
 const MAX_RETRIES = 2;
 const COOLDOWN_DURATION_MS = 60000;
 
-function decryptKey(encrypted: string, secret: string): string {
-  const decoder = new TextDecoder();
-  const encryptedBytes = Uint8Array.from(atob(encrypted), c => c.charCodeAt(0));
-  const secretBytes = new TextEncoder().encode(secret);
-  const decrypted = new Uint8Array(encryptedBytes.length);
-  
-  for (let i = 0; i < encryptedBytes.length; i++) {
-    decrypted[i] = encryptedBytes[i] ^ secretBytes[i % secretBytes.length];
-  }
-  
-  return decoder.decode(decrypted);
-}
+// Input validation constants
+const MAX_THEME_LENGTH = 200;
+const MIN_WORD_COUNT = 10;
+const MAX_WORD_COUNT = 60;
+const MAX_PROMPT_COUNT = 1000;
 
 function delay(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -66,6 +60,14 @@ function getAvailableKeys(keys: ApiKeyRecord[]): ApiKeyRecord[] {
     });
 }
 
+function sanitizeTheme(theme: string): string {
+  // Remove any potentially dangerous characters and limit length
+  return theme
+    .slice(0, MAX_THEME_LENGTH)
+    .replace(/[<>&"'\\]/g, '')
+    .trim();
+}
+
 function buildGlitchTypographyPrompt(
   theme: string,
   batchNumber: number,
@@ -76,6 +78,8 @@ function buildGlitchTypographyPrompt(
   maxWords: number,
   previousPrompts: string[]
 ): string {
+  const sanitizedTheme = sanitizeTheme(theme);
+  
   const baseRules = `
 You are a specialized text-to-image prompt generator focused STRICTLY on glitch typography.
 
@@ -106,7 +110,7 @@ VARIATION RULES (IMPORTANT):
 - Vary typography styles, glitch behaviors, composition, and mood
 - If a prompt is too similar to a previous one, rewrite it
 
-THEME: ${theme}
+THEME: ${sanitizedTheme}
 `;
 
   if (batchNumber === 1) {
@@ -185,7 +189,7 @@ async function generateBatch(
       model: model || "llama-3.3-70b-versatile",
       messages: [
         { role: "system", content: systemPrompt },
-        { role: "user", content: `Generate ${batchSize} glitch typography prompts with theme: ${theme}` },
+        { role: "user", content: `Generate ${batchSize} glitch typography prompts with theme: ${sanitizeTheme(theme)}` },
       ],
       temperature: 0.9,
       max_tokens: 3000,
@@ -202,7 +206,7 @@ async function generateBatch(
     if (response.status === 401) {
       throw new Error("INVALID_KEY");
     }
-    throw new Error(errorData.error?.message || "API request failed");
+    throw new Error("API request failed");
   }
 
   const data = await response.json();
@@ -275,7 +279,8 @@ async function generateBatchWithRotation(
   }
 
   for (const keyRecord of availableKeys) {
-    const apiKey = decryptKey(keyRecord.encrypted_key, encryptionKey);
+    // Use fallback decryption to support both old XOR and new AES-GCM keys
+    const apiKey = await decryptKeyWithFallback(keyRecord.encrypted_key, encryptionKey);
     
     for (let retry = 0; retry <= MAX_RETRIES; retry++) {
       try {
@@ -375,6 +380,7 @@ serve(async (req) => {
 
     const { theme, model, count = 20, minWords = 22, maxWords = 35 } = await req.json();
 
+    // Validate theme
     if (!theme || typeof theme !== "string") {
       return new Response(
         JSON.stringify({ error: "Theme is required" }),
@@ -382,9 +388,17 @@ serve(async (req) => {
       );
     }
 
-    const totalCount = Math.min(Math.max(1, count), 1000);
-    const validMinWords = Math.min(Math.max(10, minWords), 50);
-    const validMaxWords = Math.min(Math.max(15, maxWords), 60);
+    if (theme.length > MAX_THEME_LENGTH) {
+      return new Response(
+        JSON.stringify({ error: `Theme must be ${MAX_THEME_LENGTH} characters or less` }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // Validate and sanitize numeric inputs
+    const totalCount = Math.min(Math.max(1, Number(count) || 20), MAX_PROMPT_COUNT);
+    const validMinWords = Math.min(Math.max(MIN_WORD_COUNT, Number(minWords) || 22), MAX_WORD_COUNT);
+    const validMaxWords = Math.min(Math.max(validMinWords + 5, Number(maxWords) || 35), MAX_WORD_COUNT);
 
     const { data: keys, error: keysError } = await supabase
       .from("api_keys")
@@ -468,7 +482,7 @@ serve(async (req) => {
         }
 
         return new Response(
-          JSON.stringify({ error: (error as Error).message || "Failed to generate prompts" }),
+          JSON.stringify({ error: "Failed to generate prompts. Please try again." }),
           { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
@@ -494,7 +508,7 @@ serve(async (req) => {
   } catch (error) {
     console.error("Error:", error);
     return new Response(
-      JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }),
+      JSON.stringify({ error: "An unexpected error occurred" }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
