@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
+import { Slider } from '@/components/ui/slider';
 import {
   Select,
   SelectContent,
@@ -15,9 +15,24 @@ import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Progress } from '@/components/ui/progress';
+import { ScrollArea } from '@/components/ui/scroll-area';
 
 interface PromptGeneratorProps {
   hasActiveKeys: boolean;
+}
+
+interface GeneratedPrompt {
+  id: number;
+  text: string;
+}
+
+interface JsonOutput {
+  theme: string;
+  length_rule: {
+    min_words: number;
+    max_words: number;
+  };
+  prompts: GeneratedPrompt[];
 }
 
 const MODELS = [
@@ -30,29 +45,46 @@ const MODELS = [
 const BATCH_SIZE = 20;
 
 export function PromptGenerator({ hasActiveKeys }: PromptGeneratorProps) {
-  const [input, setInput] = useState('');
+  const [theme, setTheme] = useState('cyberpunk neon');
   const [model, setModel] = useState(MODELS[0].value);
   const [promptCount, setPromptCount] = useState('20');
-  const [output, setOutput] = useState<string[]>([]);
+  const [minWords, setMinWords] = useState(22);
+  const [maxWords, setMaxWords] = useState(35);
+  const [output, setOutput] = useState<JsonOutput | null>(null);
   const [loading, setLoading] = useState(false);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const { toast } = useToast();
 
   const handleCountChange = (value: string) => {
-    // Only allow numbers
     const numericValue = value.replace(/\D/g, '');
     if (numericValue === '' || (parseInt(numericValue) >= 1 && parseInt(numericValue) <= 1000)) {
       setPromptCount(numericValue);
     }
   };
 
+  const handleMinWordsChange = (value: number[]) => {
+    const newMin = value[0];
+    setMinWords(newMin);
+    if (newMin > maxWords) {
+      setMaxWords(newMin + 5);
+    }
+  };
+
+  const handleMaxWordsChange = (value: number[]) => {
+    const newMax = value[0];
+    setMaxWords(newMax);
+    if (newMax < minWords) {
+      setMinWords(newMax - 5);
+    }
+  };
+
   const handleGenerate = async () => {
-    if (!input.trim()) {
+    if (!theme.trim()) {
       toast({
         variant: 'destructive',
-        title: 'Input required',
-        description: 'Please enter a topic or description for your prompts.',
+        title: 'Theme required',
+        description: 'Please enter a theme for your glitch typography prompts.',
       });
       return;
     }
@@ -68,17 +100,18 @@ export function PromptGenerator({ hasActiveKeys }: PromptGeneratorProps) {
     }
 
     setLoading(true);
-    setOutput([]);
+    setOutput(null);
     
-    const totalBatches = Math.ceil(count / BATCH_SIZE);
     setProgress({ current: 0, total: count });
 
     try {
       const { data, error } = await supabase.functions.invoke('generate-prompts', {
         body: {
-          topic: input.trim(),
+          theme: theme.trim(),
           model,
           count,
+          minWords,
+          maxWords,
         },
       });
 
@@ -88,20 +121,31 @@ export function PromptGenerator({ hasActiveKeys }: PromptGeneratorProps) {
         throw new Error(data.error);
       }
 
-      const prompts = data.prompts || [];
-      setOutput(prompts);
-      setProgress({ current: prompts.length, total: count });
+      const jsonOutput: JsonOutput = {
+        theme: theme.trim(),
+        length_rule: {
+          min_words: minWords,
+          max_words: maxWords,
+        },
+        prompts: (data.prompts || []).map((text: string, index: number) => ({
+          id: index + 1,
+          text,
+        })),
+      };
+
+      setOutput(jsonOutput);
+      setProgress({ current: jsonOutput.prompts.length, total: count });
 
       if (data.partial) {
         toast({
           variant: 'default',
           title: 'Partial results',
-          description: data.message || `Generated ${prompts.length} of ${count} prompts.`,
+          description: data.message || `Generated ${jsonOutput.prompts.length} of ${count} prompts.`,
         });
       } else {
         toast({
           title: 'Generation complete',
-          description: `Successfully generated ${prompts.length} prompts.`,
+          description: `Successfully generated ${jsonOutput.prompts.length} glitch typography prompts.`,
         });
       }
     } catch (error) {
@@ -122,22 +166,22 @@ export function PromptGenerator({ hasActiveKeys }: PromptGeneratorProps) {
     setTimeout(() => setCopiedIndex(null), 2000);
   };
 
-  const copyAllPrompts = async () => {
-    const text = output.map((p, i) => `${i + 1}. ${p}`).join('\n\n');
-    await navigator.clipboard.writeText(text);
+  const copyAsJson = async () => {
+    if (!output) return;
+    await navigator.clipboard.writeText(JSON.stringify(output, null, 2));
     toast({
       title: 'Copied!',
-      description: `${output.length} prompts copied to clipboard.`,
+      description: 'JSON output copied to clipboard.',
     });
   };
 
-  const downloadPrompts = () => {
-    const text = output.map((p, i) => `${i + 1}. ${p}`).join('\n\n');
-    const blob = new Blob([text], { type: 'text/plain' });
+  const downloadJson = () => {
+    if (!output) return;
+    const blob = new Blob([JSON.stringify(output, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'prompts.txt';
+    a.download = `glitch-prompts-${theme.replace(/\s+/g, '-').toLowerCase()}.json`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -159,17 +203,20 @@ export function PromptGenerator({ hasActiveKeys }: PromptGeneratorProps) {
 
       <div className="grid gap-6 lg:grid-cols-2">
         {/* Input Section */}
-        <div className="space-y-4">
+        <div className="space-y-5">
           <div className="space-y-2">
-            <Label htmlFor="topic">Topic or Description</Label>
-            <Textarea
-              id="topic"
-              placeholder="e.g., Write creative writing prompts about time travel adventures..."
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              className="min-h-[120px] bg-muted/50 border-border resize-none"
+            <Label htmlFor="theme">Theme</Label>
+            <Input
+              id="theme"
+              placeholder="e.g., cyberpunk neon, retro VHS, futuristic data corruption..."
+              value={theme}
+              onChange={(e) => setTheme(e.target.value)}
+              className="h-11 bg-muted/50 border-border"
               disabled={!hasActiveKeys || loading}
             />
+            <p className="text-xs text-muted-foreground">
+              Focus: Glitch typography with digital effects on dark backgrounds
+            </p>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
@@ -190,7 +237,7 @@ export function PromptGenerator({ hasActiveKeys }: PromptGeneratorProps) {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="count">Number of Prompts</Label>
+              <Label htmlFor="count">Total Prompts</Label>
               <Input
                 id="count"
                 type="text"
@@ -201,6 +248,50 @@ export function PromptGenerator({ hasActiveKeys }: PromptGeneratorProps) {
                 className="h-11 bg-muted/50 border-border"
                 disabled={!hasActiveKeys || loading}
               />
+            </div>
+          </div>
+
+          {/* Word Count Sliders */}
+          <div className="space-y-4 p-4 rounded-lg border border-border bg-muted/20">
+            <div className="flex items-center justify-between">
+              <Label className="text-sm font-medium">Word Count Range</Label>
+              <span className="text-xs text-muted-foreground font-mono">
+                {minWords} – {maxWords} words
+              </span>
+            </div>
+            
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs text-muted-foreground">Minimum</Label>
+                  <span className="text-xs font-mono text-primary">{minWords}</span>
+                </div>
+                <Slider
+                  value={[minWords]}
+                  onValueChange={handleMinWordsChange}
+                  min={10}
+                  max={50}
+                  step={1}
+                  disabled={!hasActiveKeys || loading}
+                  className="cursor-pointer"
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs text-muted-foreground">Maximum</Label>
+                  <span className="text-xs font-mono text-primary">{maxWords}</span>
+                </div>
+                <Slider
+                  value={[maxWords]}
+                  onValueChange={handleMaxWordsChange}
+                  min={15}
+                  max={60}
+                  step={1}
+                  disabled={!hasActiveKeys || loading}
+                  className="cursor-pointer"
+                />
+              </div>
             </div>
           </div>
 
@@ -215,7 +306,7 @@ export function PromptGenerator({ hasActiveKeys }: PromptGeneratorProps) {
 
           <Button
             onClick={handleGenerate}
-            disabled={!hasActiveKeys || loading || !input.trim() || !promptCount}
+            disabled={!hasActiveKeys || loading || !theme.trim() || !promptCount}
             className="w-full h-12 bg-primary text-primary-foreground hover:bg-primary/90 font-semibold"
           >
             {loading ? (
@@ -245,22 +336,22 @@ export function PromptGenerator({ hasActiveKeys }: PromptGeneratorProps) {
         {/* Output Section */}
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <Label>Generated Prompts ({output.length})</Label>
-            {output.length > 0 && (
+            <Label>Generated Prompts ({output?.prompts.length || 0})</Label>
+            {output && output.prompts.length > 0 && (
               <div className="flex gap-2">
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={copyAllPrompts}
+                  onClick={copyAsJson}
                   className="text-muted-foreground hover:text-foreground"
                 >
                   <Copy className="h-4 w-4 mr-1" />
-                  Copy All
+                  Copy JSON
                 </Button>
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={downloadPrompts}
+                  onClick={downloadJson}
                   className="text-muted-foreground hover:text-foreground"
                 >
                   <Download className="h-4 w-4 mr-1" />
@@ -270,47 +361,103 @@ export function PromptGenerator({ hasActiveKeys }: PromptGeneratorProps) {
             )}
           </div>
 
-          <div className="min-h-[280px] rounded-xl border border-border bg-muted/30 p-4 overflow-y-auto max-h-[500px]">
-            {output.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
-                <Sparkles className="h-12 w-12 mb-3 opacity-50" />
-                <p className="text-sm">Generated prompts will appear here</p>
-                {isLargeGeneration && (
-                  <p className="text-xs mt-2 text-center max-w-[200px]">
-                    Your {promptCount} prompts will be generated in {totalBatches} batches
+          <ScrollArea className="h-[500px] rounded-xl border border-border bg-muted/30">
+            <div className="p-4">
+              {!output || output.prompts.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-[450px] text-muted-foreground">
+                  <Sparkles className="h-12 w-12 mb-3 opacity-50" />
+                  <p className="text-sm font-medium">Glitch Typography Prompts</p>
+                  <p className="text-xs mt-2 text-center max-w-[220px]">
+                    JSON output with {minWords}–{maxWords} word prompts
                   </p>
-                )}
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {output.map((prompt, index) => (
-                  <div
-                    key={index}
-                    className="group p-3 rounded-lg bg-card border border-border/50 hover:border-primary/30 transition-colors"
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <p className="text-sm text-foreground flex-1">
-                        <span className="text-primary font-medium">{index + 1}.</span>{' '}
-                        {prompt}
-                      </p>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => copyPrompt(prompt, index)}
-                        className="h-7 w-7 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
-                      >
-                        {copiedIndex === index ? (
-                          <Check className="h-4 w-4 text-success" />
-                        ) : (
-                          <Copy className="h-4 w-4" />
-                        )}
-                      </Button>
+                  {isLargeGeneration && (
+                    <p className="text-xs mt-2 text-center max-w-[200px]">
+                      {promptCount} prompts in {totalBatches} batches
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {/* JSON Header Display */}
+                  <div className="p-3 rounded-lg bg-card border border-border/50 font-mono text-xs">
+                    <div className="text-muted-foreground">
+                      <span className="text-primary">{'{'}</span>
+                    </div>
+                    <div className="ml-4">
+                      <span className="text-primary">"theme"</span>
+                      <span className="text-muted-foreground">: </span>
+                      <span className="text-accent-foreground">"{output.theme}"</span>
+                      <span className="text-muted-foreground">,</span>
+                    </div>
+                    <div className="ml-4">
+                      <span className="text-primary">"length_rule"</span>
+                      <span className="text-muted-foreground">: {'{'} </span>
+                      <span className="text-primary">"min_words"</span>
+                      <span className="text-muted-foreground">: </span>
+                      <span className="text-foreground">{output.length_rule.min_words}</span>
+                      <span className="text-muted-foreground">, </span>
+                      <span className="text-primary">"max_words"</span>
+                      <span className="text-muted-foreground">: </span>
+                      <span className="text-foreground">{output.length_rule.max_words}</span>
+                      <span className="text-muted-foreground"> {'}'}</span>
+                      <span className="text-muted-foreground">,</span>
+                    </div>
+                    <div className="ml-4">
+                      <span className="text-primary">"prompts"</span>
+                      <span className="text-muted-foreground">: [</span>
                     </div>
                   </div>
-                ))}
-              </div>
-            )}
-          </div>
+
+                  {/* Prompts List */}
+                  {output.prompts.map((prompt, index) => (
+                    <div
+                      key={prompt.id}
+                      className="group p-3 rounded-lg bg-card border border-border/50 hover:border-primary/30 transition-colors"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex-1 font-mono text-xs">
+                          <span className="text-muted-foreground ml-6">{'{'}</span>
+                          <div className="ml-10">
+                            <span className="text-primary">"id"</span>
+                            <span className="text-muted-foreground">: </span>
+                            <span className="text-foreground">{prompt.id}</span>
+                            <span className="text-muted-foreground">,</span>
+                          </div>
+                          <div className="ml-10">
+                            <span className="text-primary">"text"</span>
+                            <span className="text-muted-foreground">: </span>
+                            <span className="text-accent-foreground break-words">"{prompt.text}"</span>
+                          </div>
+                          <span className="text-muted-foreground ml-6">{'}'}</span>
+                          {index < output.prompts.length - 1 && (
+                            <span className="text-muted-foreground">,</span>
+                          )}
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => copyPrompt(prompt.text, index)}
+                          className="h-7 w-7 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                          {copiedIndex === index ? (
+                            <Check className="h-4 w-4 text-primary" />
+                          ) : (
+                            <Copy className="h-4 w-4" />
+                          )}
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+
+                  {/* JSON Footer */}
+                  <div className="p-3 rounded-lg bg-card border border-border/50 font-mono text-xs">
+                    <div className="ml-4 text-muted-foreground">]</div>
+                    <div className="text-primary">{'}'}</div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </ScrollArea>
         </div>
       </div>
     </div>
