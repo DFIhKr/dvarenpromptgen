@@ -1,1 +1,7 @@
 project_id = "pttpkzkdlzyvzzskpoto"
+
+[functions.manage-api-keys]
+verify_jwt = false
+
+[functions.generate-prompts]
+verify_jwt = false
