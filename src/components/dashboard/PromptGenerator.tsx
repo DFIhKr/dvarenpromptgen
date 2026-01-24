@@ -57,7 +57,7 @@ const OUTPUT_TYPES = [
 
 // LEVEL 2: Style Mode (OPTIONAL) - Defines HOW the output looks
 const STYLE_MODES = [
-  { value: '', label: 'None (Default)' },
+  { value: 'none', label: 'None (Default)' },
   { value: 'cinematic', label: 'Cinematic' },
   { value: 'glitch', label: 'Glitch' },
   { value: 'retro', label: 'Retro' },
@@ -70,7 +70,7 @@ const STYLE_MODES = [
 
 // LEVEL 3: Mood / Tone (OPTIONAL) - Defines emotional feeling
 const MOODS = [
-  { value: '', label: 'None (Default)' },
+  { value: 'none', label: 'None (Default)' },
   { value: 'dark', label: 'Dark' },
   { value: 'calm', label: 'Calm' },
   { value: 'futuristic', label: 'Futuristic' },
@@ -92,8 +92,8 @@ export function PromptGenerator({ hasActiveKeys }: PromptGeneratorProps) {
   const [theme, setTheme] = useState('');
   const [model, setModel] = useState(MODELS[0].value);
   const [outputType, setOutputType] = useState(OUTPUT_TYPES[0].value);
-  const [styleMode, setStyleMode] = useState('');
-  const [mood, setMood] = useState('');
+  const [styleMode, setStyleMode] = useState('none');
+  const [mood, setMood] = useState('none');
   const [outputFormat, setOutputFormat] = useState<'json' | 'text'>('text');
   const [promptCount, setPromptCount] = useState('20');
   const [minWords, setMinWords] = useState(22);
@@ -134,12 +134,12 @@ export function PromptGenerator({ hasActiveKeys }: PromptGeneratorProps) {
   };
 
   const getStyleModeLabel = (value: string) => {
-    if (!value) return null;
+    if (!value || value === 'none') return null;
     return STYLE_MODES.find(s => s.value === value)?.label || value;
   };
 
   const getMoodLabel = (value: string) => {
-    if (!value) return null;
+    if (!value || value === 'none') return null;
     return MOODS.find(m => m.value === value)?.label || value;
   };
 
@@ -175,8 +175,8 @@ export function PromptGenerator({ hasActiveKeys }: PromptGeneratorProps) {
           theme: theme.trim(),
           model,
           outputType,
-          styleMode: styleMode || null,
-          mood: mood || null,
+          styleMode: styleMode === 'none' ? null : styleMode,
+          mood: mood === 'none' ? null : mood,
           outputFormat,
           count,
           minWords,
@@ -369,7 +369,7 @@ export function PromptGenerator({ hasActiveKeys }: PromptGeneratorProps) {
                 </SelectTrigger>
                 <SelectContent>
                   {STYLE_MODES.map((s) => (
-                    <SelectItem key={s.value || 'none'} value={s.value}>
+                    <SelectItem key={s.value} value={s.value}>
                       {s.label}
                     </SelectItem>
                   ))}
@@ -388,7 +388,7 @@ export function PromptGenerator({ hasActiveKeys }: PromptGeneratorProps) {
                 </SelectTrigger>
                 <SelectContent>
                   {MOODS.map((m) => (
-                    <SelectItem key={m.value || 'none'} value={m.value}>
+                    <SelectItem key={m.value} value={m.value}>
                       {m.label}
                     </SelectItem>
                   ))}
