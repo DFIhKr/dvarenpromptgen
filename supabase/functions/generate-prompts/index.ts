@@ -7,9 +7,9 @@ const corsHeaders = {
 };
 
 const BATCH_SIZE = 20;
-const BATCH_DELAY_MS = 1200; // 1.2 seconds between batches
+const BATCH_DELAY_MS = 1200;
 const MAX_RETRIES = 2;
-const COOLDOWN_DURATION_MS = 60000; // 60 seconds cooldown for rate-limited keys
+const COOLDOWN_DURATION_MS = 60000;
 
 function decryptKey(encrypted: string, secret: string): string {
   const decoder = new TextDecoder();
@@ -45,13 +45,11 @@ interface KeyRotationState {
   keys: ApiKeyRecord[];
 }
 
-// Get available keys sorted for round-robin (oldest used first)
 function getAvailableKeys(keys: ApiKeyRecord[]): ApiKeyRecord[] {
   const now = new Date();
   
   return keys
     .filter(key => {
-      // Exclude keys currently in cooldown
       if (key.cooldown_until) {
         const cooldownEnd = new Date(key.cooldown_until);
         if (cooldownEnd > now) {
@@ -62,52 +60,120 @@ function getAvailableKeys(keys: ApiKeyRecord[]): ApiKeyRecord[] {
       return true;
     })
     .sort((a, b) => {
-      // Sort by last_used_at ascending (oldest first = round-robin)
       const aTime = a.last_used_at ? new Date(a.last_used_at).getTime() : 0;
       const bTime = b.last_used_at ? new Date(b.last_used_at).getTime() : 0;
       return aTime - bTime;
     });
 }
 
-async function generateBatch(
-  apiKey: string,
-  topic: string,
-  model: string,
+function buildGlitchTypographyPrompt(
+  theme: string,
   batchNumber: number,
   batchSize: number,
   startNumber: number,
   endNumber: number,
+  minWords: number,
+  maxWords: number,
   previousPrompts: string[]
-): Promise<BatchResult> {
-  let systemPrompt: string;
-  
-  if (batchNumber === 1) {
-    systemPrompt = `You are a creative prompt generator. Generate exactly ${batchSize} unique, creative, and actionable prompts based on the user's topic.
-Return ONLY a JSON array of strings, each string being one prompt. No explanations, no numbering in the prompts, just the pure prompts.
-Example format: ["Prompt 1 text here", "Prompt 2 text here"]
-IMPORTANT: Generate exactly ${batchSize} prompts, no more, no less.`;
-  } else {
-    // Continuation prompt with context from previous batches
-    const recentPrompts = previousPrompts.slice(-5); // Last 5 prompts for context
-    systemPrompt = `You are a creative prompt generator continuing a series.
+): string {
+  const baseRules = `
+You are a specialized text-to-image prompt generator focused STRICTLY on glitch typography.
 
-Continue generating NEW text-to-image prompts only.
+NON-NEGOTIABLE CONTENT RULES:
+- The subject MUST always be text or typography
+- Typography MUST be affected by DIGITAL glitch effects
+- Background MUST be dark or black-dominant
+- No illustration-only or scenery-only prompts
+- No watercolor, painterly, or soft fantasy styles
+
+PROMPT LENGTH RULE (STRICT):
+Each generated prompt MUST:
+- Be exactly ONE sentence
+- Have a word count BETWEEN ${minWords} and ${maxWords} words
+- If too short → expand with more detail
+- If too long → compress while keeping key elements
+
+CONTENT CHECKLIST (ALL REQUIRED IN EACH PROMPT):
+- Exact typography style (sans-serif, monospace, display, stencil, brutalist, etc.)
+- Specific glitch behavior (RGB split, pixel tearing, scanlines, VHS noise, signal loss, data corruption, chromatic aberration)
+- Dark or black background
+- Color or screen-light accents
+- Digital or technological mood
+
+VARIATION RULES (IMPORTANT):
+- Avoid repeating sentence openings
+- Avoid repeating structure patterns
+- Vary typography styles, glitch behaviors, composition, and mood
+- If a prompt is too similar to a previous one, rewrite it
+
+THEME: ${theme}
+`;
+
+  if (batchNumber === 1) {
+    return `${baseRules}
+
+Generate exactly ${batchSize} unique glitch typography prompts.
+
+OUTPUT FORMAT (STRICT):
+Return ONLY a valid JSON array of strings.
+Do NOT include markdown, code blocks, or explanations.
+Example: ["prompt 1 text", "prompt 2 text"]
+
+QUALITY CONTROL before outputting each prompt:
+- Check word count is within ${minWords}-${maxWords} range
+- Check glitch typography is clearly described
+- Check it does not repeat structure from previous prompts
+
+Generate ${batchSize} prompts NOW:`;
+  }
+
+  const recentPrompts = previousPrompts.slice(-5);
+  return `${baseRules}
+
+Continue generating NEW glitch typography prompts only.
 Previous prompts ended at number ${startNumber - 1}.
 
 Rules:
 - Generate exactly ${batchSize} NEW prompts.
 - Number from ${startNumber} to ${endNumber}.
-- Do NOT repeat concepts, metaphors, visual ideas, or wording from previous batches.
+- Do NOT repeat concepts, metaphors, visual ideas, glitch effects, or wording from previous batches.
 - Maintain consistent theme and quality.
-- Each prompt must be ONE sentence.
+- Each prompt must be ONE sentence with ${minWords}-${maxWords} words.
 - No explanations, no headers, no extra text.
 
 Previous batch ended with these prompts (for context, DO NOT repeat or paraphrase these):
 ${recentPrompts.map((p, i) => `  ${i + 1}. "${p}"`).join('\n')}
 
-Return ONLY a JSON array of ${batchSize} NEW prompt strings. No explanations, no numbering.
-Example format: ["New prompt 1", "New prompt 2"]`;
-  }
+OUTPUT FORMAT (STRICT):
+Return ONLY a valid JSON array of ${batchSize} NEW prompt strings.
+No markdown, no code blocks, no explanations.
+Example: ["New prompt 1", "New prompt 2"]
+
+Generate ${batchSize} NEW prompts NOW:`;
+}
+
+async function generateBatch(
+  apiKey: string,
+  theme: string,
+  model: string,
+  batchNumber: number,
+  batchSize: number,
+  startNumber: number,
+  endNumber: number,
+  minWords: number,
+  maxWords: number,
+  previousPrompts: string[]
+): Promise<BatchResult> {
+  const systemPrompt = buildGlitchTypographyPrompt(
+    theme,
+    batchNumber,
+    batchSize,
+    startNumber,
+    endNumber,
+    minWords,
+    maxWords,
+    previousPrompts
+  );
 
   const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
@@ -119,10 +185,10 @@ Example format: ["New prompt 1", "New prompt 2"]`;
       model: model || "llama-3.3-70b-versatile",
       messages: [
         { role: "system", content: systemPrompt },
-        { role: "user", content: `Generate ${batchSize} creative prompts about: ${topic}` },
+        { role: "user", content: `Generate ${batchSize} glitch typography prompts with theme: ${theme}` },
       ],
-      temperature: 0.85,
-      max_tokens: 2500,
+      temperature: 0.9,
+      max_tokens: 3000,
     }),
   });
 
@@ -146,27 +212,42 @@ Example format: ["New prompt 1", "New prompt 2"]`;
     throw new Error("No response from AI model");
   }
 
-  // Parse the JSON response
   let prompts: string[];
   try {
+    // Try to extract JSON array from response
     const jsonMatch = content.match(/\[[\s\S]*\]/);
     if (jsonMatch) {
       prompts = JSON.parse(jsonMatch[0]);
     } else {
+      // Fallback: parse line by line
       prompts = content
         .split("\n")
-        .map((line: string) => line.replace(/^\d+\.\s*/, "").trim())
-        .filter((line: string) => line.length > 10);
+        .map((line: string) => line.replace(/^\d+\.\s*/, "").replace(/^["']|["']$/g, "").trim())
+        .filter((line: string) => line.length > 20);
     }
   } catch {
     prompts = content
       .split("\n")
-      .map((line: string) => line.replace(/^\d+\.\s*/, "").trim())
-      .filter((line: string) => line.length > 10);
+      .map((line: string) => line.replace(/^\d+\.\s*/, "").replace(/^["']|["']$/g, "").trim())
+      .filter((line: string) => line.length > 20);
   }
 
+  // Filter and clean prompts
+  const cleanedPrompts = prompts
+    .map((p: string) => p.trim())
+    .filter((p: string) => {
+      // Must contain typography-related keywords
+      const hasTypography = /text|typography|font|letter|character|word|glyph|type|sans-serif|monospace|serif|display|stencil/i.test(p);
+      // Must contain glitch-related keywords
+      const hasGlitch = /glitch|pixel|scan|vhs|noise|corrupt|rgb|split|tear|distort|fragment|static|signal|digital|chromatic|aberration/i.test(p);
+      // Must be reasonable length
+      const words = p.split(/\s+/).length;
+      return hasTypography && hasGlitch && words >= minWords * 0.8 && words <= maxWords * 1.2;
+    })
+    .slice(0, batchSize);
+
   return {
-    prompts: prompts.slice(0, batchSize),
+    prompts: cleanedPrompts,
     tokensUsed: data.usage?.total_tokens || 0,
   };
 }
@@ -175,17 +256,18 @@ async function generateBatchWithRotation(
   supabase: SupabaseClient,
   rotationState: KeyRotationState,
   encryptionKey: string,
-  topic: string,
+  theme: string,
   model: string,
   batchNumber: number,
   batchSize: number,
   startNumber: number,
   endNumber: number,
+  minWords: number,
+  maxWords: number,
   previousPrompts: string[]
 ): Promise<{ result: BatchResult; usedKeyId: string }> {
   let lastError: Error | null = null;
   
-  // Get available keys sorted by last_used_at (round-robin)
   const availableKeys = getAvailableKeys(rotationState.keys);
   
   if (availableKeys.length === 0) {
@@ -204,16 +286,17 @@ async function generateBatchWithRotation(
         
         const result = await generateBatch(
           apiKey, 
-          topic, 
+          theme, 
           model, 
           batchNumber, 
           batchSize,
           startNumber,
           endNumber,
+          minWords,
+          maxWords,
           previousPrompts
         );
         
-        // Update last_used_at and clear any cooldown
         await supabase
           .from("api_keys")
           .update({ 
@@ -222,7 +305,6 @@ async function generateBatchWithRotation(
           } as Record<string, unknown>)
           .eq("id", keyRecord.id);
         
-        // Update local state
         keyRecord.last_used_at = new Date().toISOString();
         keyRecord.cooldown_until = null;
         
@@ -232,7 +314,6 @@ async function generateBatchWithRotation(
         console.error(`Batch ${batchNumber}, key ${keyRecord.id.slice(0, 8)}, retry ${retry}:`, error);
         
         if ((error as Error).message === "RATE_LIMIT") {
-          // Set cooldown for this key and try next key
           const cooldownUntil = new Date(Date.now() + COOLDOWN_DURATION_MS).toISOString();
           
           await supabase
@@ -240,24 +321,21 @@ async function generateBatchWithRotation(
             .update({ cooldown_until: cooldownUntil } as Record<string, unknown>)
             .eq("id", keyRecord.id);
           
-          // Update local state
           keyRecord.cooldown_until = cooldownUntil;
           
           console.log(`Key ${keyRecord.id.slice(0, 8)} set to cooldown until ${cooldownUntil}`);
-          break; // Try next key
+          break;
         }
         
         if ((error as Error).message === "INVALID_KEY") {
-          // Mark key as inactive
           await supabase
             .from("api_keys")
             .update({ is_active: false } as Record<string, unknown>)
             .eq("id", keyRecord.id);
           
           console.log(`Key ${keyRecord.id.slice(0, 8)} marked as inactive (invalid)`);
-          break; // Try next key
+          break;
         }
-        // For other errors, retry with same key
       }
     }
   }
@@ -295,19 +373,19 @@ serve(async (req) => {
       );
     }
 
-    const { topic, model, count = 5 } = await req.json();
+    const { theme, model, count = 20, minWords = 22, maxWords = 35 } = await req.json();
 
-    if (!topic || typeof topic !== "string") {
+    if (!theme || typeof theme !== "string") {
       return new Response(
-        JSON.stringify({ error: "Topic is required" }),
+        JSON.stringify({ error: "Theme is required" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // Validate count (1-1000)
     const totalCount = Math.min(Math.max(1, count), 1000);
+    const validMinWords = Math.min(Math.max(10, minWords), 50);
+    const validMaxWords = Math.min(Math.max(15, maxWords), 60);
 
-    // Get user's active API keys with rotation metadata
     const { data: keys, error: keysError } = await supabase
       .from("api_keys")
       .select("id, encrypted_key, last_used_at, cooldown_until")
@@ -321,15 +399,13 @@ serve(async (req) => {
       );
     }
 
-    // Initialize rotation state
     const rotationState: KeyRotationState = {
       currentIndex: 0,
       keys: keys as ApiKeyRecord[],
     };
 
-    // Calculate batches
     const numBatches = Math.ceil(totalCount / BATCH_SIZE);
-    console.log(`Generating ${totalCount} prompts in ${numBatches} batch(es) with ${keys.length} available key(s)`);
+    console.log(`Generating ${totalCount} glitch typography prompts in ${numBatches} batch(es) with ${keys.length} available key(s)`);
 
     const allPrompts: string[] = [];
     let totalTokensUsed = 0;
@@ -347,12 +423,14 @@ serve(async (req) => {
           supabase,
           rotationState,
           encryptionKey,
-          topic,
+          theme,
           model,
           batchNum,
           batchSize,
           startNumber,
           endNumber,
+          validMinWords,
+          validMaxWords,
           allPrompts
         );
 
@@ -361,18 +439,15 @@ serve(async (req) => {
 
         console.log(`Batch ${batchNum} complete: ${result.prompts.length} prompts, ${result.tokensUsed} tokens, key ${usedKeyId.slice(0, 8)}`);
 
-        // Add delay between batches (except after last batch)
         if (!isLastBatch) {
           await delay(BATCH_DELAY_MS);
         }
       } catch (error) {
         console.error(`Batch ${batchNum} failed:`, error);
         
-        // If we have some prompts, return partial results
         if (allPrompts.length > 0) {
           console.log(`Returning partial results: ${allPrompts.length} prompts`);
           
-          // Log partial usage
           await supabase.from("prompt_logs").insert({
             user_id: user.id,
             model: model || "llama-3.3-70b-versatile",
@@ -392,7 +467,6 @@ serve(async (req) => {
           );
         }
 
-        // No prompts generated at all
         return new Response(
           JSON.stringify({ error: (error as Error).message || "Failed to generate prompts" }),
           { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -400,7 +474,6 @@ serve(async (req) => {
       }
     }
 
-    // Log complete usage
     await supabase.from("prompt_logs").insert({
       user_id: user.id,
       model: model || "llama-3.3-70b-versatile",
