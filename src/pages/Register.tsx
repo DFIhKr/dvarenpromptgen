@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Logo } from '@/components/Logo';
+import { ThemeToggle } from '@/components/ThemeToggle';
 import { Loader2, Eye, EyeOff, ArrowRight, AlertCircle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -66,10 +67,11 @@ export default function Register() {
       {/* Left Panel - Form */}
       <div className="flex flex-1 flex-col justify-center px-8 py-12 lg:px-20">
         <div className="mx-auto w-full max-w-md">
-          <div className="mb-10">
+          <div className="mb-10 flex items-center justify-between">
             <Link to="/" className="inline-block">
               <Logo size="lg" />
             </Link>
+            <ThemeToggle />
           </div>
 
           <div className="mb-8">
