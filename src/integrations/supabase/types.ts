@@ -16,34 +16,40 @@ export type Database = {
     Tables: {
       api_keys: {
         Row: {
+          cooldown_until: string | null
           created_at: string
           encrypted_key: string
           id: string
           is_active: boolean
           key_hint: string
           label: string | null
+          last_used_at: string | null
           provider: string
           updated_at: string
           user_id: string
         }
         Insert: {
+          cooldown_until?: string | null
           created_at?: string
           encrypted_key: string
           id?: string
           is_active?: boolean
           key_hint: string
           label?: string | null
+          last_used_at?: string | null
           provider?: string
           updated_at?: string
           user_id: string
         }
         Update: {
+          cooldown_until?: string | null
           created_at?: string
           encrypted_key?: string
           id?: string
           is_active?: boolean
           key_hint?: string
           label?: string | null
+          last_used_at?: string | null
           provider?: string
           updated_at?: string
           user_id?: string
