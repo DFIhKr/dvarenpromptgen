@@ -18,6 +18,10 @@ const MIN_WORD_COUNT = 10;
 const MAX_WORD_COUNT = 60;
 const MAX_PROMPT_COUNT = 1000;
 
+// Valid style modes
+const VALID_STYLE_MODES = ['free_illustration', 'typography', 'glitch_typography', 'ui_tech_screen'];
+const VALID_OUTPUT_FORMATS = ['json', 'text'];
+
 function delay(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
@@ -61,15 +65,25 @@ function getAvailableKeys(keys: ApiKeyRecord[]): ApiKeyRecord[] {
 }
 
 function sanitizeTheme(theme: string): string {
-  // Remove any potentially dangerous characters and limit length
   return theme
     .slice(0, MAX_THEME_LENGTH)
     .replace(/[<>&"'\\]/g, '')
     .trim();
 }
 
-function buildGlitchTypographyPrompt(
+function getStyleModeLabel(styleMode: string): string {
+  const labels: Record<string, string> = {
+    'free_illustration': 'Free Illustration',
+    'typography': 'Typography',
+    'glitch_typography': 'Glitch Typography',
+    'ui_tech_screen': 'UI / Tech Screen',
+  };
+  return labels[styleMode] || styleMode;
+}
+
+function buildPromptSystem(
   theme: string,
+  styleMode: string,
   batchNumber: number,
   batchSize: number,
   startNumber: number,
@@ -79,16 +93,11 @@ function buildGlitchTypographyPrompt(
   previousPrompts: string[]
 ): string {
   const sanitizedTheme = sanitizeTheme(theme);
+  const styleModeLabel = getStyleModeLabel(styleMode);
   
+  // Base rules that apply to all styles
   const baseRules = `
-You are a specialized text-to-image prompt generator focused STRICTLY on glitch typography.
-
-NON-NEGOTIABLE CONTENT RULES:
-- The subject MUST always be text or typography
-- Typography MUST be affected by DIGITAL glitch effects
-- Background MUST be dark or black-dominant
-- No illustration-only or scenery-only prompts
-- No watercolor, painterly, or soft fantasy styles
+You are a specialized text-to-image prompt generator.
 
 PROMPT LENGTH RULE (STRICT):
 Each generated prompt MUST:
@@ -97,26 +106,110 @@ Each generated prompt MUST:
 - If too short → expand with more detail
 - If too long → compress while keeping key elements
 
+VARIATION RULES (IMPORTANT):
+- Avoid repeating sentence openings
+- Avoid repeating structure patterns
+- Vary composition, mood, and visual elements
+- If a prompt is too similar to a previous one, rewrite it
+
+THEME: ${sanitizedTheme}
+STYLE MODE: ${styleModeLabel}
+`;
+
+  // Style-specific rules
+  let styleRules = '';
+  
+  switch (styleMode) {
+    case 'free_illustration':
+      styleRules = `
+STYLE: FREE ILLUSTRATION
+You generate cinematic scene descriptions with vivid imagery.
+
+CONTENT RULES:
+- Describe scenes naturally based on the theme
+- Include atmosphere, lighting, and mood
+- Use descriptive language for environments, characters, or objects
+- Focus on visual storytelling and composition
+- No typography or text elements required
+- Can be any artistic style: photorealistic, painterly, fantasy, etc.
+
+CHECKLIST FOR EACH PROMPT:
+- Clear subject or scene
+- Atmospheric lighting described
+- Mood or emotion conveyed
+- Artistic style or medium (optional but encouraged)
+`;
+      break;
+      
+    case 'typography':
+      styleRules = `
+STYLE: TYPOGRAPHY
+You generate text-based visual design prompts.
+
+CONTENT RULES:
+- The subject MUST be text, letters, or typography
+- Describe specific font styles (serif, sans-serif, script, display, etc.)
+- Include text arrangement and composition
+- Specify colors, textures, or materials for the typography
+- Background should complement the text design
+- No glitch effects unless specifically themed
+
+CHECKLIST FOR EACH PROMPT:
+- Typography style specified
+- Text composition described
+- Color palette or material
+- Background or context
+`;
+      break;
+      
+    case 'glitch_typography':
+      styleRules = `
+STYLE: GLITCH TYPOGRAPHY
+You generate text-based visuals with digital glitch effects.
+
+NON-NEGOTIABLE CONTENT RULES:
+- The subject MUST always be text or typography
+- Typography MUST be affected by DIGITAL glitch effects
+- Background MUST be dark or black-dominant
+- No illustration-only or scenery-only prompts
+- No watercolor, painterly, or soft fantasy styles
+
 CONTENT CHECKLIST (ALL REQUIRED IN EACH PROMPT):
 - Exact typography style (sans-serif, monospace, display, stencil, brutalist, etc.)
 - Specific glitch behavior (RGB split, pixel tearing, scanlines, VHS noise, signal loss, data corruption, chromatic aberration)
 - Dark or black background
 - Color or screen-light accents
 - Digital or technological mood
-
-VARIATION RULES (IMPORTANT):
-- Avoid repeating sentence openings
-- Avoid repeating structure patterns
-- Vary typography styles, glitch behaviors, composition, and mood
-- If a prompt is too similar to a previous one, rewrite it
-
-THEME: ${sanitizedTheme}
 `;
+      break;
+      
+    case 'ui_tech_screen':
+      styleRules = `
+STYLE: UI / TECH SCREEN
+You generate interface-like, system message visuals.
+
+CONTENT RULES:
+- Focus on futuristic UI elements, HUDs, or system interfaces
+- Include digital screens, terminals, or holographic displays
+- Describe system messages, error codes, or data visualizations
+- Use tech-inspired aesthetics: grids, scanlines, data streams
+- Typography should look like system fonts or terminal text
+- Dark backgrounds with glowing elements preferred
+
+CHECKLIST FOR EACH PROMPT:
+- Type of interface or screen
+- System elements (buttons, graphs, text, indicators)
+- Color scheme (neon, monochrome, holographic)
+- Tech aesthetic or era (cyberpunk, retro-futuristic, minimal)
+`;
+      break;
+  }
 
   if (batchNumber === 1) {
     return `${baseRules}
+${styleRules}
 
-Generate exactly ${batchSize} unique glitch typography prompts.
+Generate exactly ${batchSize} unique prompts.
 
 OUTPUT FORMAT (STRICT):
 Return ONLY a valid JSON array of strings.
@@ -125,7 +218,7 @@ Example: ["prompt 1 text", "prompt 2 text"]
 
 QUALITY CONTROL before outputting each prompt:
 - Check word count is within ${minWords}-${maxWords} range
-- Check glitch typography is clearly described
+- Check style requirements are met
 - Check it does not repeat structure from previous prompts
 
 Generate ${batchSize} prompts NOW:`;
@@ -133,14 +226,15 @@ Generate ${batchSize} prompts NOW:`;
 
   const recentPrompts = previousPrompts.slice(-5);
   return `${baseRules}
+${styleRules}
 
-Continue generating NEW glitch typography prompts only.
+Continue generating NEW prompts only.
 Previous prompts ended at number ${startNumber - 1}.
 
 Rules:
 - Generate exactly ${batchSize} NEW prompts.
 - Number from ${startNumber} to ${endNumber}.
-- Do NOT repeat concepts, metaphors, visual ideas, glitch effects, or wording from previous batches.
+- Do NOT repeat concepts, metaphors, visual ideas, or wording from previous batches.
 - Maintain consistent theme and quality.
 - Each prompt must be ONE sentence with ${minWords}-${maxWords} words.
 - No explanations, no headers, no extra text.
@@ -156,9 +250,42 @@ Example: ["New prompt 1", "New prompt 2"]
 Generate ${batchSize} NEW prompts NOW:`;
 }
 
+function validatePromptForStyle(prompt: string, styleMode: string, minWords: number, maxWords: number): boolean {
+  const words = prompt.split(/\s+/).length;
+  
+  // Word count check (with tolerance)
+  if (words < minWords * 0.8 || words > maxWords * 1.2) {
+    return false;
+  }
+  
+  switch (styleMode) {
+    case 'glitch_typography': {
+      const hasTypography = /text|typography|font|letter|character|word|glyph|type|sans-serif|monospace|serif|display|stencil/i.test(prompt);
+      const hasGlitch = /glitch|pixel|scan|vhs|noise|corrupt|rgb|split|tear|distort|fragment|static|signal|digital|chromatic|aberration/i.test(prompt);
+      return hasTypography && hasGlitch;
+    }
+    
+    case 'typography': {
+      const hasTypography = /text|typography|font|letter|character|word|glyph|type|sans-serif|monospace|serif|display|script|typeface/i.test(prompt);
+      return hasTypography;
+    }
+    
+    case 'ui_tech_screen': {
+      const hasTech = /screen|interface|ui|hud|terminal|display|system|digital|holographic|panel|dashboard|monitor|data|grid/i.test(prompt);
+      return hasTech;
+    }
+    
+    case 'free_illustration':
+    default:
+      // Free illustration is more permissive
+      return prompt.length > 20;
+  }
+}
+
 async function generateBatch(
   apiKey: string,
   theme: string,
+  styleMode: string,
   model: string,
   batchNumber: number,
   batchSize: number,
@@ -168,8 +295,9 @@ async function generateBatch(
   maxWords: number,
   previousPrompts: string[]
 ): Promise<BatchResult> {
-  const systemPrompt = buildGlitchTypographyPrompt(
+  const systemPrompt = buildPromptSystem(
     theme,
+    styleMode,
     batchNumber,
     batchSize,
     startNumber,
@@ -189,7 +317,7 @@ async function generateBatch(
       model: model || "llama-3.3-70b-versatile",
       messages: [
         { role: "system", content: systemPrompt },
-        { role: "user", content: `Generate ${batchSize} glitch typography prompts with theme: ${sanitizeTheme(theme)}` },
+        { role: "user", content: `Generate ${batchSize} ${getStyleModeLabel(styleMode)} prompts with theme: ${sanitizeTheme(theme)}` },
       ],
       temperature: 0.9,
       max_tokens: 3000,
@@ -218,12 +346,10 @@ async function generateBatch(
 
   let prompts: string[];
   try {
-    // Try to extract JSON array from response
     const jsonMatch = content.match(/\[[\s\S]*\]/);
     if (jsonMatch) {
       prompts = JSON.parse(jsonMatch[0]);
     } else {
-      // Fallback: parse line by line
       prompts = content
         .split("\n")
         .map((line: string) => line.replace(/^\d+\.\s*/, "").replace(/^["']|["']$/g, "").trim())
@@ -236,18 +362,10 @@ async function generateBatch(
       .filter((line: string) => line.length > 20);
   }
 
-  // Filter and clean prompts
+  // Filter and clean prompts based on style
   const cleanedPrompts = prompts
     .map((p: string) => p.trim())
-    .filter((p: string) => {
-      // Must contain typography-related keywords
-      const hasTypography = /text|typography|font|letter|character|word|glyph|type|sans-serif|monospace|serif|display|stencil/i.test(p);
-      // Must contain glitch-related keywords
-      const hasGlitch = /glitch|pixel|scan|vhs|noise|corrupt|rgb|split|tear|distort|fragment|static|signal|digital|chromatic|aberration/i.test(p);
-      // Must be reasonable length
-      const words = p.split(/\s+/).length;
-      return hasTypography && hasGlitch && words >= minWords * 0.8 && words <= maxWords * 1.2;
-    })
+    .filter((p: string) => validatePromptForStyle(p, styleMode, minWords, maxWords))
     .slice(0, batchSize);
 
   return {
@@ -261,6 +379,7 @@ async function generateBatchWithRotation(
   rotationState: KeyRotationState,
   encryptionKey: string,
   theme: string,
+  styleMode: string,
   model: string,
   batchNumber: number,
   batchSize: number,
@@ -279,7 +398,6 @@ async function generateBatchWithRotation(
   }
 
   for (const keyRecord of availableKeys) {
-    // Use fallback decryption to support both old XOR and new AES-GCM keys
     const apiKey = await decryptKeyWithFallback(keyRecord.encrypted_key, encryptionKey);
     
     for (let retry = 0; retry <= MAX_RETRIES; retry++) {
@@ -291,7 +409,8 @@ async function generateBatchWithRotation(
         
         const result = await generateBatch(
           apiKey, 
-          theme, 
+          theme,
+          styleMode,
           model, 
           batchNumber, 
           batchSize,
@@ -378,7 +497,15 @@ serve(async (req) => {
       );
     }
 
-    const { theme, model, count = 20, minWords = 22, maxWords = 35 } = await req.json();
+    const { 
+      theme, 
+      model, 
+      styleMode = 'glitch_typography',
+      outputFormat = 'json',
+      count = 20, 
+      minWords = 22, 
+      maxWords = 35 
+    } = await req.json();
 
     // Validate theme
     if (!theme || typeof theme !== "string") {
@@ -394,6 +521,12 @@ serve(async (req) => {
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
+
+    // Validate style mode
+    const validStyleMode = VALID_STYLE_MODES.includes(styleMode) ? styleMode : 'glitch_typography';
+    
+    // Validate output format
+    const validOutputFormat = VALID_OUTPUT_FORMATS.includes(outputFormat) ? outputFormat : 'json';
 
     // Validate and sanitize numeric inputs
     const totalCount = Math.min(Math.max(1, Number(count) || 20), MAX_PROMPT_COUNT);
@@ -419,7 +552,7 @@ serve(async (req) => {
     };
 
     const numBatches = Math.ceil(totalCount / BATCH_SIZE);
-    console.log(`Generating ${totalCount} glitch typography prompts in ${numBatches} batch(es) with ${keys.length} available key(s)`);
+    console.log(`Generating ${totalCount} ${getStyleModeLabel(validStyleMode)} prompts in ${numBatches} batch(es) with ${keys.length} available key(s)`);
 
     const allPrompts: string[] = [];
     let totalTokensUsed = 0;
@@ -438,6 +571,7 @@ serve(async (req) => {
           rotationState,
           encryptionKey,
           theme,
+          validStyleMode,
           model,
           batchNum,
           batchSize,
@@ -472,6 +606,8 @@ serve(async (req) => {
           return new Response(
             JSON.stringify({ 
               prompts: allPrompts,
+              styleMode: validStyleMode,
+              outputFormat: validOutputFormat,
               partial: true,
               completedBatches: batchNum - 1,
               totalBatches: numBatches,
@@ -500,6 +636,8 @@ serve(async (req) => {
     return new Response(
       JSON.stringify({ 
         prompts: allPrompts,
+        styleMode: validStyleMode,
+        outputFormat: validOutputFormat,
         totalBatches: numBatches,
         completedBatches: numBatches
       }),
