@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { ApiKeyCard } from '@/components/dashboard/ApiKeyCard';
 import { AddApiKeyDialog } from '@/components/dashboard/AddApiKeyDialog';
 import { PromptGenerator } from '@/components/dashboard/PromptGenerator';
+import { ThemeToggle } from '@/components/ThemeToggle';
 import { LogOut, Key, Loader2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
@@ -130,10 +131,11 @@ export default function Dashboard() {
       <header className="border-b border-border bg-card/50 backdrop-blur-sm sticky top-0 z-50">
         <div className="container mx-auto px-4 h-16 flex items-center justify-between">
           <Logo />
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
             <span className="text-sm text-muted-foreground hidden sm:block">
               {user?.email}
             </span>
+            <ThemeToggle />
             <Button
               variant="ghost"
               size="sm"

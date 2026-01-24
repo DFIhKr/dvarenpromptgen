@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { Logo } from '@/components/Logo';
 import { Button } from '@/components/ui/button';
+import { ThemeToggle } from '@/components/ThemeToggle';
 import { ArrowRight, Shield, Zap, Key, Sparkles } from 'lucide-react';
 
 export default function Index() {
@@ -36,7 +37,8 @@ export default function Index() {
       <header className="border-b border-border/50 bg-background/80 backdrop-blur-sm fixed top-0 w-full z-50">
         <div className="container mx-auto px-4 h-16 flex items-center justify-between">
           <Logo />
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
+            <ThemeToggle />
             {user ? (
               <Link to="/dashboard">
                 <Button className="bg-primary text-primary-foreground hover:bg-primary/90">
