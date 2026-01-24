@@ -1,5 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -9,6 +9,7 @@ const corsHeaders = {
 const BATCH_SIZE = 20;
 const BATCH_DELAY_MS = 1200; // 1.2 seconds between batches
 const MAX_RETRIES = 2;
+const COOLDOWN_DURATION_MS = 60000; // 60 seconds cooldown for rate-limited keys
 
 function decryptKey(encrypted: string, secret: string): string {
   const decoder = new TextDecoder();
@@ -27,9 +28,45 @@ function delay(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+interface ApiKeyRecord {
+  id: string;
+  encrypted_key: string;
+  last_used_at: string | null;
+  cooldown_until: string | null;
+}
+
 interface BatchResult {
   prompts: string[];
   tokensUsed: number;
+}
+
+interface KeyRotationState {
+  currentIndex: number;
+  keys: ApiKeyRecord[];
+}
+
+// Get available keys sorted for round-robin (oldest used first)
+function getAvailableKeys(keys: ApiKeyRecord[]): ApiKeyRecord[] {
+  const now = new Date();
+  
+  return keys
+    .filter(key => {
+      // Exclude keys currently in cooldown
+      if (key.cooldown_until) {
+        const cooldownEnd = new Date(key.cooldown_until);
+        if (cooldownEnd > now) {
+          console.log(`Key ${key.id.slice(0, 8)} is in cooldown until ${cooldownEnd.toISOString()}`);
+          return false;
+        }
+      }
+      return true;
+    })
+    .sort((a, b) => {
+      // Sort by last_used_at ascending (oldest first = round-robin)
+      const aTime = a.last_used_at ? new Date(a.last_used_at).getTime() : 0;
+      const bTime = b.last_used_at ? new Date(b.last_used_at).getTime() : 0;
+      return aTime - bTime;
+    });
 }
 
 async function generateBatch(
@@ -38,11 +75,10 @@ async function generateBatch(
   model: string,
   batchNumber: number,
   batchSize: number,
+  startNumber: number,
+  endNumber: number,
   previousPrompts: string[]
 ): Promise<BatchResult> {
-  const startNumber = (batchNumber - 1) * BATCH_SIZE + 1;
-  const endNumber = startNumber + batchSize - 1;
-  
   let systemPrompt: string;
   
   if (batchNumber === 1) {
@@ -53,17 +89,24 @@ IMPORTANT: Generate exactly ${batchSize} prompts, no more, no less.`;
   } else {
     // Continuation prompt with context from previous batches
     const recentPrompts = previousPrompts.slice(-5); // Last 5 prompts for context
-    systemPrompt = `You are a creative prompt generator continuing a series. Generate exactly ${batchSize} NEW and UNIQUE prompts based on the user's topic.
+    systemPrompt = `You are a creative prompt generator continuing a series.
 
-CRITICAL INSTRUCTIONS:
-- This is batch ${batchNumber} (prompts ${startNumber} to ${endNumber})
-- You MUST generate completely NEW prompts that are DIFFERENT from previous ones
-- Previous batch ended with these prompts (for context, DO NOT repeat or paraphrase these):
+Continue generating NEW text-to-image prompts only.
+Previous prompts ended at number ${startNumber - 1}.
+
+Rules:
+- Generate exactly ${batchSize} NEW prompts.
+- Number from ${startNumber} to ${endNumber}.
+- Do NOT repeat concepts, metaphors, visual ideas, or wording from previous batches.
+- Maintain consistent theme and quality.
+- Each prompt must be ONE sentence.
+- No explanations, no headers, no extra text.
+
+Previous batch ended with these prompts (for context, DO NOT repeat or paraphrase these):
 ${recentPrompts.map((p, i) => `  ${i + 1}. "${p}"`).join('\n')}
 
 Return ONLY a JSON array of ${batchSize} NEW prompt strings. No explanations, no numbering.
-Example format: ["New prompt 1", "New prompt 2"]
-IMPORTANT: Generate exactly ${batchSize} NEW prompts. Do NOT repeat concepts from previous prompts.`;
+Example format: ["New prompt 1", "New prompt 2"]`;
   }
 
   const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
@@ -78,7 +121,7 @@ IMPORTANT: Generate exactly ${batchSize} NEW prompts. Do NOT repeat concepts fro
         { role: "system", content: systemPrompt },
         { role: "user", content: `Generate ${batchSize} creative prompts about: ${topic}` },
       ],
-      temperature: 0.85, // Slightly higher for more variety
+      temperature: 0.85,
       max_tokens: 2500,
     }),
   });
@@ -123,63 +166,103 @@ IMPORTANT: Generate exactly ${batchSize} NEW prompts. Do NOT repeat concepts fro
   }
 
   return {
-    prompts: prompts.slice(0, batchSize), // Ensure we don't exceed batch size
+    prompts: prompts.slice(0, batchSize),
     tokensUsed: data.usage?.total_tokens || 0,
   };
 }
 
-async function generateBatchWithRetry(
-  apiKeys: { id: string; encrypted_key: string }[],
+async function generateBatchWithRotation(
+  supabase: SupabaseClient,
+  rotationState: KeyRotationState,
   encryptionKey: string,
   topic: string,
   model: string,
   batchNumber: number,
   batchSize: number,
-  previousPrompts: string[],
-  usedKeyIndices: Set<number>
-): Promise<{ result: BatchResult; keyIndex: number }> {
+  startNumber: number,
+  endNumber: number,
+  previousPrompts: string[]
+): Promise<{ result: BatchResult; usedKeyId: string }> {
   let lastError: Error | null = null;
   
-  // Shuffle keys for load balancing
-  const keyIndices = Array.from({ length: apiKeys.length }, (_, i) => i)
-    .filter(i => !usedKeyIndices.has(i))
-    .sort(() => Math.random() - 0.5);
+  // Get available keys sorted by last_used_at (round-robin)
+  const availableKeys = getAvailableKeys(rotationState.keys);
   
-  // Add already used keys at the end as fallback
-  const fallbackIndices = Array.from(usedKeyIndices).sort(() => Math.random() - 0.5);
-  const orderedIndices = [...keyIndices, ...fallbackIndices];
+  if (availableKeys.length === 0) {
+    throw new Error("All API keys are in cooldown. Please wait or add more keys.");
+  }
 
-  for (const keyIndex of orderedIndices) {
-    const keyRecord = apiKeys[keyIndex];
+  for (const keyRecord of availableKeys) {
     const apiKey = decryptKey(keyRecord.encrypted_key, encryptionKey);
     
     for (let retry = 0; retry <= MAX_RETRIES; retry++) {
       try {
         if (retry > 0) {
-          console.log(`Retry ${retry} for batch ${batchNumber} with key ${keyIndex}`);
-          await delay(BATCH_DELAY_MS * (retry + 1)); // Exponential backoff
+          console.log(`Retry ${retry} for batch ${batchNumber} with key ${keyRecord.id.slice(0, 8)}`);
+          await delay(BATCH_DELAY_MS * (retry + 1));
         }
         
-        const result = await generateBatch(apiKey, topic, model, batchNumber, batchSize, previousPrompts);
-        return { result, keyIndex };
+        const result = await generateBatch(
+          apiKey, 
+          topic, 
+          model, 
+          batchNumber, 
+          batchSize,
+          startNumber,
+          endNumber,
+          previousPrompts
+        );
+        
+        // Update last_used_at and clear any cooldown
+        await supabase
+          .from("api_keys")
+          .update({ 
+            last_used_at: new Date().toISOString(),
+            cooldown_until: null 
+          } as Record<string, unknown>)
+          .eq("id", keyRecord.id);
+        
+        // Update local state
+        keyRecord.last_used_at = new Date().toISOString();
+        keyRecord.cooldown_until = null;
+        
+        return { result, usedKeyId: keyRecord.id };
       } catch (error) {
         lastError = error as Error;
-        console.error(`Batch ${batchNumber}, key ${keyIndex}, retry ${retry}:`, error);
+        console.error(`Batch ${batchNumber}, key ${keyRecord.id.slice(0, 8)}, retry ${retry}:`, error);
         
         if ((error as Error).message === "RATE_LIMIT") {
-          // Try next key immediately for rate limits
-          break;
+          // Set cooldown for this key and try next key
+          const cooldownUntil = new Date(Date.now() + COOLDOWN_DURATION_MS).toISOString();
+          
+          await supabase
+            .from("api_keys")
+            .update({ cooldown_until: cooldownUntil } as Record<string, unknown>)
+            .eq("id", keyRecord.id);
+          
+          // Update local state
+          keyRecord.cooldown_until = cooldownUntil;
+          
+          console.log(`Key ${keyRecord.id.slice(0, 8)} set to cooldown until ${cooldownUntil}`);
+          break; // Try next key
         }
+        
         if ((error as Error).message === "INVALID_KEY") {
-          // Try next key for invalid keys
-          break;
+          // Mark key as inactive
+          await supabase
+            .from("api_keys")
+            .update({ is_active: false } as Record<string, unknown>)
+            .eq("id", keyRecord.id);
+          
+          console.log(`Key ${keyRecord.id.slice(0, 8)} marked as inactive (invalid)`);
+          break; // Try next key
         }
         // For other errors, retry with same key
       }
     }
   }
   
-  throw lastError || new Error("All keys exhausted");
+  throw lastError || new Error("All keys exhausted or in cooldown");
 }
 
 serve(async (req) => {
@@ -221,13 +304,13 @@ serve(async (req) => {
       );
     }
 
-    // Validate count (1-100)
-    const totalCount = Math.min(Math.max(1, count), 100);
+    // Validate count (1-1000)
+    const totalCount = Math.min(Math.max(1, count), 1000);
 
-    // Get user's active API keys
+    // Get user's active API keys with rotation metadata
     const { data: keys, error: keysError } = await supabase
       .from("api_keys")
-      .select("id, encrypted_key")
+      .select("id, encrypted_key, last_used_at, cooldown_until")
       .eq("user_id", user.id)
       .eq("is_active", true);
 
@@ -238,37 +321,45 @@ serve(async (req) => {
       );
     }
 
+    // Initialize rotation state
+    const rotationState: KeyRotationState = {
+      currentIndex: 0,
+      keys: keys as ApiKeyRecord[],
+    };
+
     // Calculate batches
     const numBatches = Math.ceil(totalCount / BATCH_SIZE);
-    console.log(`Generating ${totalCount} prompts in ${numBatches} batch(es)`);
+    console.log(`Generating ${totalCount} prompts in ${numBatches} batch(es) with ${keys.length} available key(s)`);
 
     const allPrompts: string[] = [];
     let totalTokensUsed = 0;
-    const usedKeyIndices = new Set<number>();
 
     for (let batchNum = 1; batchNum <= numBatches; batchNum++) {
       const isLastBatch = batchNum === numBatches;
       const batchSize = isLastBatch ? (totalCount - (batchNum - 1) * BATCH_SIZE) : BATCH_SIZE;
+      const startNumber = (batchNum - 1) * BATCH_SIZE + 1;
+      const endNumber = startNumber + batchSize - 1;
       
-      console.log(`Processing batch ${batchNum}/${numBatches} (${batchSize} prompts)`);
+      console.log(`Processing batch ${batchNum}/${numBatches} (prompts ${startNumber}-${endNumber})`);
 
       try {
-        const { result, keyIndex } = await generateBatchWithRetry(
-          keys,
+        const { result, usedKeyId } = await generateBatchWithRotation(
+          supabase,
+          rotationState,
           encryptionKey,
           topic,
           model,
           batchNum,
           batchSize,
-          allPrompts,
-          usedKeyIndices
+          startNumber,
+          endNumber,
+          allPrompts
         );
 
         allPrompts.push(...result.prompts);
         totalTokensUsed += result.tokensUsed;
-        usedKeyIndices.add(keyIndex);
 
-        console.log(`Batch ${batchNum} complete: ${result.prompts.length} prompts, ${result.tokensUsed} tokens`);
+        console.log(`Batch ${batchNum} complete: ${result.prompts.length} prompts, ${result.tokensUsed} tokens, key ${usedKeyId.slice(0, 8)}`);
 
         // Add delay between batches (except after last batch)
         if (!isLastBatch) {
@@ -287,13 +378,15 @@ serve(async (req) => {
             model: model || "llama-3.3-70b-versatile",
             prompt_count: allPrompts.length,
             tokens_used: totalTokensUsed,
-          });
+          } as Record<string, unknown>);
 
           return new Response(
             JSON.stringify({ 
               prompts: allPrompts,
               partial: true,
-              message: `Generated ${allPrompts.length} of ${totalCount} prompts. Some batches failed.`
+              completedBatches: batchNum - 1,
+              totalBatches: numBatches,
+              message: `Generated ${allPrompts.length} of ${totalCount} prompts. Some batches failed due to rate limits.`
             }),
             { headers: { ...corsHeaders, "Content-Type": "application/json" } }
           );
@@ -313,12 +406,16 @@ serve(async (req) => {
       model: model || "llama-3.3-70b-versatile",
       prompt_count: allPrompts.length,
       tokens_used: totalTokensUsed,
-    });
+    } as Record<string, unknown>);
 
     console.log(`Generation complete: ${allPrompts.length} prompts, ${totalTokensUsed} total tokens`);
 
     return new Response(
-      JSON.stringify({ prompts: allPrompts }),
+      JSON.stringify({ 
+        prompts: allPrompts,
+        totalBatches: numBatches,
+        completedBatches: numBatches
+      }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error) {
