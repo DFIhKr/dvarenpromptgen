@@ -10,20 +10,49 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Plus, Loader2, Key, ExternalLink } from 'lucide-react';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Plus, Key, Loader2, ExternalLink } from 'lucide-react';
 
 interface AddApiKeyDialogProps {
-  onAdd: (apiKey: string, label?: string) => Promise<void>;
+  onAdd: (apiKey: string, provider: 'groq' | 'openrouter', label?: string) => Promise<void>;
   disabled?: boolean;
   keyCount: number;
 }
 
+const PROVIDERS = [
+  { 
+    value: 'groq' as const, 
+    label: 'Groq',
+    placeholder: 'gsk_...',
+    prefix: 'gsk_',
+    url: 'https://console.groq.com/keys',
+    urlLabel: 'console.groq.com',
+  },
+  { 
+    value: 'openrouter' as const, 
+    label: 'OpenRouter',
+    placeholder: 'sk-or-v1-...',
+    prefix: 'sk-or-',
+    url: 'https://openrouter.ai/keys',
+    urlLabel: 'openrouter.ai/keys',
+  },
+];
+
 export function AddApiKeyDialog({ onAdd, disabled, keyCount }: AddApiKeyDialogProps) {
   const [open, setOpen] = useState(false);
+  const [provider, setProvider] = useState<'groq' | 'openrouter'>('groq');
   const [apiKey, setApiKey] = useState('');
   const [label, setLabel] = useState('');
   const [loading, setLoading] = useState(false);
+
+  const currentProvider = PROVIDERS.find(p => p.value === provider)!;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -31,9 +60,10 @@ export function AddApiKeyDialog({ onAdd, disabled, keyCount }: AddApiKeyDialogPr
 
     setLoading(true);
     try {
-      await onAdd(apiKey.trim(), label.trim() || undefined);
+      await onAdd(apiKey.trim(), provider, label.trim() || undefined);
       setApiKey('');
       setLabel('');
+      setProvider('groq');
       setOpen(false);
     } finally {
       setLoading(false);
@@ -57,7 +87,7 @@ export function AddApiKeyDialog({ onAdd, disabled, keyCount }: AddApiKeyDialogPr
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Key className="h-5 w-5 text-primary" />
-            Add Groq API Key
+            Add API Key
           </DialogTitle>
           <DialogDescription>
             Your API key will be encrypted and stored securely. It will never be visible again.
@@ -65,16 +95,33 @@ export function AddApiKeyDialog({ onAdd, disabled, keyCount }: AddApiKeyDialogPr
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-4 mt-4">
+          {/* Provider Selection */}
+          <div className="space-y-2">
+            <Label htmlFor="provider">Provider</Label>
+            <Select value={provider} onValueChange={(v) => setProvider(v as 'groq' | 'openrouter')}>
+              <SelectTrigger className="h-11 bg-muted/50 border-border">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {PROVIDERS.map((p) => (
+                  <SelectItem key={p.value} value={p.value}>
+                    {p.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
           <Alert className="border-info/50 bg-info/10">
             <AlertDescription className="text-sm">
-              Get your free API key at{' '}
+              Get your API key at{' '}
               <a
-                href="https://console.groq.com/keys"
+                href={currentProvider.url}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-primary hover:underline font-medium inline-flex items-center gap-1"
               >
-                console.groq.com
+                {currentProvider.urlLabel}
                 <ExternalLink className="h-3 w-3" />
               </a>
             </AlertDescription>
@@ -85,7 +132,7 @@ export function AddApiKeyDialog({ onAdd, disabled, keyCount }: AddApiKeyDialogPr
             <Input
               id="apiKey"
               type="password"
-              placeholder="gsk_..."
+              placeholder={currentProvider.placeholder}
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
               required
