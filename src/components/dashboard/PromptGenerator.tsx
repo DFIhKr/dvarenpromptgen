@@ -202,7 +202,7 @@ export function PromptGenerator({ hasActiveKeys, apiKeys }: PromptGeneratorProps
       return;
     }
 
-    // Calculate batches
+    // Calculate batches (minimum estimate)
     const batchSize = Math.min(BATCH_SIZE, totalCount);
     const totalBatches = Math.ceil(totalCount / batchSize);
 
@@ -213,30 +213,36 @@ export function PromptGenerator({ hasActiveKeys, apiKeys }: PromptGeneratorProps
     setProgress({ current: 0, total: totalCount, batch: 0, totalBatches });
     shouldStopRef.current = false;
 
-    const collectedPrompts: string[] = [];
+    const uniquePrompts = new Set<string>();
+    const orderedPrompts: string[] = [];
+    let batchNum = 0;
+    let noProgressCount = 0;
+    let hadError = false;
+    const maxNoProgressBatches = 6;
 
     // ========================================================================
     // CLIENT-SIDE BATCH LOOP
     // ========================================================================
-    for (let batchNum = 1; batchNum <= totalBatches; batchNum++) {
+    while (uniquePrompts.size < totalCount) {
+      batchNum += 1;
       // Check if user cancelled
       if (shouldStopRef.current) {
         toast({
           title: 'Generation stopped',
-          description: `Saved ${collectedPrompts.length} prompts.`,
+          description: `Saved ${orderedPrompts.length} prompts.`,
         });
         break;
       }
 
-      const remaining = totalCount - collectedPrompts.length;
+      const remaining = totalCount - uniquePrompts.size;
       const currentBatchSize = Math.min(batchSize, remaining);
-      const startNumber = collectedPrompts.length + 1;
+      const startNumber = uniquePrompts.size + 1;
       
       // Last 5 prompts for AI context continuity
-      const previousPrompts = collectedPrompts.slice(-5);
+      const previousPrompts = orderedPrompts.slice(-5);
 
       setProgress({ 
-        current: collectedPrompts.length, 
+        current: uniquePrompts.size, 
         total: totalCount, 
         batch: batchNum, 
         totalBatches 
@@ -267,35 +273,55 @@ export function PromptGenerator({ hasActiveKeys, apiKeys }: PromptGeneratorProps
         if (data.error) throw new Error(data.error);
 
         // Merge results - prevent duplicates
-        const newPrompts = data.prompts || [];
-        collectedPrompts.push(...newPrompts);
+        const newPrompts = Array.isArray(data.prompts) ? data.prompts : [];
+        let addedThisBatch = 0;
+
+        for (const prompt of newPrompts) {
+          const cleaned = String(prompt).trim();
+          if (!cleaned) continue;
+          if (uniquePrompts.has(cleaned)) continue;
+          uniquePrompts.add(cleaned);
+          orderedPrompts.push(cleaned);
+          addedThisBatch += 1;
+          if (uniquePrompts.size >= totalCount) break;
+        }
 
         // Update output in real-time so user sees progress
-        const textList = collectedPrompts
+        const textList = orderedPrompts
           .map((text, index) => `${index + 1}. ${text}`)
           .join('\n');
         setTextOutput(textList);
 
         // Update progress
         setProgress({ 
-          current: collectedPrompts.length, 
+          current: uniquePrompts.size, 
           total: totalCount, 
           batch: batchNum, 
           totalBatches 
         });
 
-        // CLIENT-SIDE DELAY between batches (except last)
-        // This is where the delay happens - NOT on the server!
-        if (batchNum < totalBatches && !shouldStopRef.current) {
+        if (addedThisBatch === 0) {
+          noProgressCount += 1;
+        } else {
+          noProgressCount = 0;
+        }
+
+        if (noProgressCount >= maxNoProgressBatches) {
+          throw new Error('Model returned no new prompts for multiple batches. Please try again or adjust settings.');
+        }
+
+        // CLIENT-SIDE DELAY between batches (not on the server)
+        if (uniquePrompts.size < totalCount && !shouldStopRef.current) {
           await new Promise(resolve => setTimeout(resolve, BATCH_DELAY_MS));
         }
 
       } catch (err) {
         console.error(`Batch ${batchNum} error:`, err);
+        hadError = true;
         
         // Return what we have so far (partial results)
-        if (collectedPrompts.length > 0) {
-          const textList = collectedPrompts
+        if (orderedPrompts.length > 0) {
+          const textList = orderedPrompts
             .map((text, index) => `${index + 1}. ${text}`)
             .join('\n');
           setTextOutput(textList);
@@ -303,7 +329,7 @@ export function PromptGenerator({ hasActiveKeys, apiKeys }: PromptGeneratorProps
           toast({
             variant: 'default',
             title: 'Partial results',
-            description: `Generated ${collectedPrompts.length} of ${totalCount} prompts before error.`,
+            description: `Generated ${orderedPrompts.length} of ${totalCount} prompts before error.`,
           });
           break;
         }
@@ -323,12 +349,12 @@ export function PromptGenerator({ hasActiveKeys, apiKeys }: PromptGeneratorProps
 
     // Final state
     setLoading(false);
-    setProgress({ current: collectedPrompts.length, total: totalCount, batch: totalBatches, totalBatches });
+    setProgress({ current: orderedPrompts.length, total: totalCount, batch: batchNum, totalBatches });
 
-    if (collectedPrompts.length > 0 && !shouldStopRef.current) {
+    if (uniquePrompts.size >= totalCount && !shouldStopRef.current && !hadError) {
       toast({
         title: 'Generation complete',
-        description: `Successfully generated ${collectedPrompts.length} prompts.`,
+        description: `Successfully generated ${orderedPrompts.length} prompts.`,
       });
     }
   }, [theme, provider, model, outputType, styleMode, mood, negativePrompt, promptCount, minWords, maxWords, hasActiveProviderKeys, toast]);
@@ -372,6 +398,11 @@ export function PromptGenerator({ hasActiveKeys, apiKeys }: PromptGeneratorProps
   const progressPercent = progress.total > 0 ? (progress.current / progress.total) * 100 : 0;
   const hasOutput = textOutput.length > 0;
   const outputCount = textOutput.split('\n').filter(l => l.trim()).length;
+  const batchLabel = progress.totalBatches > 0
+    ? (progress.batch > progress.totalBatches
+      ? `Batch ${progress.batch} (est ${progress.totalBatches})`
+      : `Batch ${progress.batch} of ${progress.totalBatches}`)
+    : 'Generating...';
 
   return (
     <div className="space-y-6">
@@ -633,9 +664,7 @@ export function PromptGenerator({ hasActiveKeys, apiKeys }: PromptGeneratorProps
             <div className="space-y-2">
               <div className="flex items-center justify-between text-sm text-muted-foreground">
                 <span>
-                  {isLargeGeneration 
-                    ? `Batch ${progress.batch} of ${progress.totalBatches}` 
-                    : 'Generating...'}
+                  {isLargeGeneration ? batchLabel : 'Generating...'}
                 </span>
                 <span>{progress.current} / {progress.total}</span>
               </div>
