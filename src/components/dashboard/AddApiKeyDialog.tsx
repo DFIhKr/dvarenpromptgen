@@ -54,13 +54,35 @@ export function AddApiKeyDialog({ onAdd, disabled, keyCount }: AddApiKeyDialogPr
 
   const currentProvider = PROVIDERS.find(p => p.value === provider)!;
 
+  // Sanitize API key input - extract key from common copy-paste patterns
+  const sanitizeApiKey = (key: string): string => {
+    let sanitized = key.trim();
+    
+    // Remove common patterns like: API_KEY = "..." or API_KEY="..." or just quotes
+    const patterns = [
+      /^[A-Z_]+\s*=\s*["'](.+?)["']$/i,  // API_KEY = "key" or API_KEY="key"
+      /^["'](.+?)["']$/,                   // "key" or 'key'
+    ];
+    
+    for (const pattern of patterns) {
+      const match = sanitized.match(pattern);
+      if (match && match[1]) {
+        sanitized = match[1].trim();
+        break;
+      }
+    }
+    
+    return sanitized;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!apiKey.trim()) return;
+    const cleanedKey = sanitizeApiKey(apiKey);
+    if (!cleanedKey) return;
 
     setLoading(true);
     try {
-      await onAdd(apiKey.trim(), provider, label.trim() || undefined);
+      await onAdd(cleanedKey, provider, label.trim() || undefined);
       setApiKey('');
       setLabel('');
       setProvider('groq');
