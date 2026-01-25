@@ -1,4 +1,12 @@
-import { useState } from 'react';
+// ============================================================================
+// PROMPT GENERATOR - Client-Side Batching Controller
+// ============================================================================
+// This component handles ALL batching, looping, and delays CLIENT-SIDE.
+// Each backend call generates ONE batch (max 20 prompts) to avoid
+// Vercel serverless timeouts. The loop runs here in the browser.
+// ============================================================================
+
+import { useState, useRef, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -11,7 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Loader2, Sparkles, Copy, Download, Check, AlertCircle, Info } from 'lucide-react';
+import { Loader2, Sparkles, Copy, Download, Check, AlertCircle, Info, Square } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -43,7 +51,7 @@ const OPENROUTER_MODELS = [
   { value: 'deepseek/deepseek-r1-0528:free', label: 'DeepSeek R1 0528 (Free)' },
 ];
 
-// LEVEL 1: Output Type (MANDATORY) - Defines WHAT kind of visual
+// LEVEL 1: Output Type (MANDATORY)
 const OUTPUT_TYPES = [
   { value: 'photo', label: 'Photo' },
   { value: 'video', label: 'Video' },
@@ -53,7 +61,7 @@ const OUTPUT_TYPES = [
   { value: 'ui_screen', label: 'UI / Screen' },
 ];
 
-// LEVEL 2: Style Mode (OPTIONAL) - Defines HOW the output looks
+// LEVEL 2: Style Mode (OPTIONAL)
 const STYLE_MODES = [
   { value: 'none', label: 'None (Default)' },
   { value: 'cinematic', label: 'Cinematic' },
@@ -66,7 +74,7 @@ const STYLE_MODES = [
   { value: 'vintage', label: 'Vintage' },
 ];
 
-// LEVEL 3: Mood / Tone (OPTIONAL) - Defines emotional feeling
+// LEVEL 3: Mood / Tone (OPTIONAL)
 const MOODS = [
   { value: 'none', label: 'None (Default)' },
   { value: 'dark', label: 'Dark' },
@@ -84,7 +92,9 @@ const PROVIDERS = [
   { value: 'openrouter', label: 'OpenRouter' },
 ];
 
+// Client-side batching configuration
 const BATCH_SIZE = 20;
+const BATCH_DELAY_MS = 1500; // Delay between batches (client-side)
 
 export function PromptGenerator({ hasActiveKeys, apiKeys }: PromptGeneratorProps) {
   const [theme, setTheme] = useState('');
@@ -100,9 +110,12 @@ export function PromptGenerator({ hasActiveKeys, apiKeys }: PromptGeneratorProps
   const [textOutput, setTextOutput] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
-  const [progress, setProgress] = useState({ current: 0, total: 0 });
+  const [progress, setProgress] = useState({ current: 0, total: 0, batch: 0, totalBatches: 0 });
   const [error, setError] = useState<string | null>(null);
   const { toast } = useToast();
+
+  // Ref to track if generation should stop (for cancellation)
+  const shouldStopRef = useRef(false);
 
   // Check if provider has active keys
   const hasGroqKeys = apiKeys.some(k => k.provider === 'groq' && k.is_active);
@@ -110,7 +123,6 @@ export function PromptGenerator({ hasActiveKeys, apiKeys }: PromptGeneratorProps
   const hasActiveProviderKeys = provider === 'groq' ? hasGroqKeys : hasOpenRouterKeys;
   const currentModels = provider === 'groq' ? GROQ_MODELS : OPENROUTER_MODELS;
 
-  // When provider changes, reset model to first available
   const handleProviderChange = (newProvider: 'groq' | 'openrouter') => {
     setProvider(newProvider);
     const models = newProvider === 'groq' ? GROQ_MODELS : OPENROUTER_MODELS;
@@ -154,7 +166,14 @@ export function PromptGenerator({ hasActiveKeys, apiKeys }: PromptGeneratorProps
     return MOODS.find(m => m.value === value)?.label || value;
   };
 
-  const handleGenerate = async () => {
+  // ============================================================================
+  // CLIENT-SIDE BATCHING CONTROLLER
+  // ============================================================================
+  // This function loops through batches on the CLIENT, calling the backend
+  // once per batch. Delays between batches happen HERE (not on server).
+  // This ensures each backend call completes in <10s, avoiding timeouts.
+  // ============================================================================
+  const handleGenerate = useCallback(async () => {
     if (!theme.trim()) {
       toast({
         variant: 'destructive',
@@ -173,8 +192,8 @@ export function PromptGenerator({ hasActiveKeys, apiKeys }: PromptGeneratorProps
       return;
     }
 
-    const count = parseInt(promptCount) || 20;
-    if (count < 1 || count > 1000) {
+    const totalCount = parseInt(promptCount) || 20;
+    if (totalCount < 1 || totalCount > 1000) {
       toast({
         variant: 'destructive',
         title: 'Invalid count',
@@ -183,72 +202,141 @@ export function PromptGenerator({ hasActiveKeys, apiKeys }: PromptGeneratorProps
       return;
     }
 
+    // Calculate batches
+    const batchSize = Math.min(BATCH_SIZE, totalCount);
+    const totalBatches = Math.ceil(totalCount / batchSize);
+
+    // Reset state
     setLoading(true);
     setTextOutput('');
     setError(null);
-    setProgress({ current: 0, total: count });
+    setProgress({ current: 0, total: totalCount, batch: 0, totalBatches });
+    shouldStopRef.current = false;
 
-    try {
-      const { data, error: invokeError } = await supabase.functions.invoke('generate-prompts', {
-        body: {
-          theme: theme.trim(),
-          provider,
-          model,
-          outputType,
-          styleMode: styleMode === 'none' ? null : styleMode,
-          mood: mood === 'none' ? null : mood,
-          negativePrompt: negativePrompt.trim() || null,
-          count,
-          minWords,
-          maxWords,
-        },
-      });
+    const collectedPrompts: string[] = [];
 
-      if (invokeError) throw invokeError;
-
-      if (data.error) {
-        throw new Error(data.error);
+    // ========================================================================
+    // CLIENT-SIDE BATCH LOOP
+    // ========================================================================
+    for (let batchNum = 1; batchNum <= totalBatches; batchNum++) {
+      // Check if user cancelled
+      if (shouldStopRef.current) {
+        toast({
+          title: 'Generation stopped',
+          description: `Saved ${collectedPrompts.length} prompts.`,
+        });
+        break;
       }
 
-      // CRITICAL: Check if we have prompts
-      const prompts = data.prompts || [];
+      const remaining = totalCount - collectedPrompts.length;
+      const currentBatchSize = Math.min(batchSize, remaining);
+      const startNumber = collectedPrompts.length + 1;
       
-      if (prompts.length === 0) {
-        throw new Error('No prompts were generated. The model output could not be parsed correctly. Please try again.');
-      }
+      // Last 5 prompts for AI context continuity
+      const previousPrompts = collectedPrompts.slice(-5);
 
-      // TEXT format: numbered list
-      const textList = prompts
-        .map((text: string, index: number) => `${index + 1}. ${text}`)
-        .join('\n');
-      setTextOutput(textList);
-      setProgress({ current: prompts.length, total: count });
-
-      if (data.partial) {
-        toast({
-          variant: 'default',
-          title: 'Partial results',
-          description: data.message || `Generated ${prompts.length} of ${count} prompts.`,
-        });
-      } else {
-        toast({
-          title: 'Generation complete',
-          description: `Successfully generated ${prompts.length} prompts.`,
-        });
-      }
-    } catch (err) {
-      console.error('Generation error:', err);
-      const errorMessage = err instanceof Error ? err.message : 'Failed to generate prompts';
-      setError(errorMessage);
-      toast({
-        variant: 'destructive',
-        title: 'Generation failed',
-        description: errorMessage,
+      setProgress({ 
+        current: collectedPrompts.length, 
+        total: totalCount, 
+        batch: batchNum, 
+        totalBatches 
       });
-    } finally {
-      setLoading(false);
+
+      try {
+        // Call backend for ONE batch
+        const { data, error: invokeError } = await supabase.functions.invoke('generate-prompts', {
+          body: {
+            theme: theme.trim(),
+            provider,
+            model,
+            outputType,
+            styleMode: styleMode === 'none' ? null : styleMode,
+            mood: mood === 'none' ? null : mood,
+            negativePrompt: negativePrompt.trim() || null,
+            // Single-batch parameters
+            batchSize: currentBatchSize,
+            batchNumber: batchNum,
+            startNumber,
+            previousPrompts,
+            minWords,
+            maxWords,
+          },
+        });
+
+        if (invokeError) throw invokeError;
+        if (data.error) throw new Error(data.error);
+
+        // Merge results - prevent duplicates
+        const newPrompts = data.prompts || [];
+        collectedPrompts.push(...newPrompts);
+
+        // Update output in real-time so user sees progress
+        const textList = collectedPrompts
+          .map((text, index) => `${index + 1}. ${text}`)
+          .join('\n');
+        setTextOutput(textList);
+
+        // Update progress
+        setProgress({ 
+          current: collectedPrompts.length, 
+          total: totalCount, 
+          batch: batchNum, 
+          totalBatches 
+        });
+
+        // CLIENT-SIDE DELAY between batches (except last)
+        // This is where the delay happens - NOT on the server!
+        if (batchNum < totalBatches && !shouldStopRef.current) {
+          await new Promise(resolve => setTimeout(resolve, BATCH_DELAY_MS));
+        }
+
+      } catch (err) {
+        console.error(`Batch ${batchNum} error:`, err);
+        
+        // Return what we have so far (partial results)
+        if (collectedPrompts.length > 0) {
+          const textList = collectedPrompts
+            .map((text, index) => `${index + 1}. ${text}`)
+            .join('\n');
+          setTextOutput(textList);
+          
+          toast({
+            variant: 'default',
+            title: 'Partial results',
+            description: `Generated ${collectedPrompts.length} of ${totalCount} prompts before error.`,
+          });
+          break;
+        }
+        
+        // No prompts at all - show error
+        const errorMessage = err instanceof Error ? err.message : 'Failed to generate prompts';
+        setError(errorMessage);
+        toast({
+          variant: 'destructive',
+          title: 'Generation failed',
+          description: errorMessage,
+        });
+        setLoading(false);
+        return;
+      }
     }
-  };
+
+    // Final state
+    setLoading(false);
+    setProgress({ current: collectedPrompts.length, total: totalCount, batch: totalBatches, totalBatches });
+
+    if (collectedPrompts.length > 0 && !shouldStopRef.current) {
+      toast({
+        title: 'Generation complete',
+        description: `Successfully generated ${collectedPrompts.length} prompts.`,
+      });
+    }
+  }, [theme, provider, model, outputType, styleMode, mood, negativePrompt, promptCount, minWords, maxWords, hasActiveProviderKeys, toast]);
+
+  // Cancel generation
+  const handleCancel = useCallback(() => {
+    shouldStopRef.current = true;
+  }, []);
 
   const copyPrompt = async (prompt: string, index: number) => {
     await navigator.clipboard.writeText(prompt);
@@ -510,40 +598,51 @@ export function PromptGenerator({ hasActiveKeys, apiKeys }: PromptGeneratorProps
             </Alert>
           )}
 
-          {isLargeGeneration && (
+          {isLargeGeneration && !loading && (
             <Alert className="border-primary/30 bg-primary/5">
               <Info className="h-4 w-4 text-primary" />
               <AlertDescription className="text-muted-foreground">
-                Large generations are processed in {totalBatches} batches to ensure quality and stability.
+                Large generations are processed in {totalBatches} batches for stability.
               </AlertDescription>
             </Alert>
           )}
 
-          <Button
-            onClick={handleGenerate}
-            disabled={!hasActiveProviderKeys || loading || !theme.trim() || !promptCount}
-            className="w-full h-12 bg-primary text-primary-foreground hover:bg-primary/90 font-semibold"
-          >
-            {loading ? (
-              <>
-                <Loader2 className="h-5 w-5 mr-2 animate-spin" />
-                Generating...
-              </>
-            ) : (
-              <>
-                <Sparkles className="h-5 w-5 mr-2" />
-                Generate {promptCount || 0} Prompts
-              </>
-            )}
-          </Button>
+          {/* Generate / Stop Button */}
+          {loading ? (
+            <Button
+              onClick={handleCancel}
+              variant="destructive"
+              className="w-full h-12 font-semibold"
+            >
+              <Square className="h-5 w-5 mr-2" />
+              Stop Generation
+            </Button>
+          ) : (
+            <Button
+              onClick={handleGenerate}
+              disabled={!hasActiveProviderKeys || !theme.trim() || !promptCount}
+              className="w-full h-12 bg-primary text-primary-foreground hover:bg-primary/90 font-semibold"
+            >
+              <Sparkles className="h-5 w-5 mr-2" />
+              Generate {promptCount || 0} Prompts
+            </Button>
+          )}
 
-          {loading && isLargeGeneration && (
+          {/* Progress indicator */}
+          {loading && (
             <div className="space-y-2">
               <div className="flex items-center justify-between text-sm text-muted-foreground">
-                <span>Processing batches...</span>
+                <span>
+                  {isLargeGeneration 
+                    ? `Batch ${progress.batch} of ${progress.totalBatches}` 
+                    : 'Generating...'}
+                </span>
                 <span>{progress.current} / {progress.total}</span>
               </div>
               <Progress value={progressPercent} className="h-2" />
+              <p className="text-xs text-muted-foreground text-center">
+                Results appear in real-time • Click "Stop" to save partial results
+              </p>
             </div>
           )}
         </div>
