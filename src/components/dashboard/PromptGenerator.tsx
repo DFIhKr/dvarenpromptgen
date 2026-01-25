@@ -12,6 +12,7 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Slider } from '@/components/ui/slider';
+import { Switch } from '@/components/ui/switch';
 import {
   Select,
   SelectContent,
@@ -105,6 +106,7 @@ export function PromptGenerator({ hasActiveKeys, apiKeys }: PromptGeneratorProps
   const [mood, setMood] = useState('none');
   const [negativePrompt, setNegativePrompt] = useState('');
   const [promptCount, setPromptCount] = useState('20');
+  const [parallelEnabled, setParallelEnabled] = useState(true);
   const [minWords, setMinWords] = useState(22);
   const [maxWords, setMaxWords] = useState(35);
   const [textOutput, setTextOutput] = useState<string>('');
@@ -122,6 +124,7 @@ export function PromptGenerator({ hasActiveKeys, apiKeys }: PromptGeneratorProps
   const hasOpenRouterKeys = apiKeys.some(k => k.provider === 'openrouter' && k.is_active);
   const hasActiveProviderKeys = provider === 'groq' ? hasGroqKeys : hasOpenRouterKeys;
   const currentModels = provider === 'groq' ? GROQ_MODELS : OPENROUTER_MODELS;
+  const activeProviderKeyCount = apiKeys.filter(k => k.provider === provider && k.is_active).length;
 
   const handleProviderChange = (newProvider: 'groq' | 'openrouter') => {
     setProvider(newProvider);
@@ -205,6 +208,7 @@ export function PromptGenerator({ hasActiveKeys, apiKeys }: PromptGeneratorProps
     // Calculate batches (minimum estimate)
     const batchSize = Math.min(BATCH_SIZE, totalCount);
     const totalBatches = Math.ceil(totalCount / batchSize);
+    const maxParallel = parallelEnabled ? Math.max(1, activeProviderKeyCount) : 1;
 
     // Reset state
     setLoading(true);
@@ -221,10 +225,9 @@ export function PromptGenerator({ hasActiveKeys, apiKeys }: PromptGeneratorProps
     const maxNoProgressBatches = 6;
 
     // ========================================================================
-    // CLIENT-SIDE BATCH LOOP
+    // CLIENT-SIDE BATCH LOOP (parallel waves)
     // ========================================================================
     while (uniquePrompts.size < totalCount) {
-      batchNum += 1;
       // Check if user cancelled
       if (shouldStopRef.current) {
         toast({
@@ -235,11 +238,28 @@ export function PromptGenerator({ hasActiveKeys, apiKeys }: PromptGeneratorProps
       }
 
       const remaining = totalCount - uniquePrompts.size;
-      const currentBatchSize = Math.min(batchSize, remaining);
-      const startNumber = uniquePrompts.size + 1;
-      
-      // Last 5 prompts for AI context continuity
-      const previousPrompts = orderedPrompts.slice(-5);
+      const waveBatches: Array<{
+        batchNumber: number;
+        batchSize: number;
+        startNumber: number;
+        previousPrompts: string[];
+      }> = [];
+      let plannedCount = 0;
+
+      while (plannedCount < remaining && waveBatches.length < maxParallel) {
+        batchNum += 1;
+        const currentBatchSize = Math.min(batchSize, remaining - plannedCount);
+        const startNumber = uniquePrompts.size + plannedCount + 1;
+        const previousPrompts = orderedPrompts.slice(-5);
+
+        waveBatches.push({
+          batchNumber: batchNum,
+          batchSize: currentBatchSize,
+          startNumber,
+          previousPrompts,
+        });
+        plannedCount += currentBatchSize;
+      }
 
       setProgress({ 
         current: uniquePrompts.size, 
@@ -249,41 +269,55 @@ export function PromptGenerator({ hasActiveKeys, apiKeys }: PromptGeneratorProps
       });
 
       try {
-        // Call backend for ONE batch
-        const { data, error: invokeError } = await supabase.functions.invoke('generate-prompts', {
-          body: {
-            theme: theme.trim(),
-            provider,
-            model,
-            outputType,
-            styleMode: styleMode === 'none' ? null : styleMode,
-            mood: mood === 'none' ? null : mood,
-            negativePrompt: negativePrompt.trim() || null,
-            // Single-batch parameters
-            batchSize: currentBatchSize,
-            batchNumber: batchNum,
-            startNumber,
-            previousPrompts,
-            minWords,
-            maxWords,
-          },
-        });
+        const results = await Promise.allSettled(
+          waveBatches.map(async (batch) => {
+            const { data, error: invokeError } = await supabase.functions.invoke('generate-prompts', {
+              body: {
+                theme: theme.trim(),
+                provider,
+                model,
+                outputType,
+                styleMode: styleMode === 'none' ? null : styleMode,
+                mood: mood === 'none' ? null : mood,
+                negativePrompt: negativePrompt.trim() || null,
+                // Single-batch parameters
+                batchSize: batch.batchSize,
+                batchNumber: batch.batchNumber,
+                startNumber: batch.startNumber,
+                previousPrompts: batch.previousPrompts,
+                minWords,
+                maxWords,
+              },
+            });
 
-        if (invokeError) throw invokeError;
-        if (data.error) throw new Error(data.error);
+            if (invokeError) throw invokeError;
+            if (data?.error) throw new Error(data.error);
 
-        // Merge results - prevent duplicates
-        const newPrompts = Array.isArray(data.prompts) ? data.prompts : [];
-        let addedThisBatch = 0;
+            return Array.isArray(data?.prompts) ? data.prompts : [];
+          })
+        );
 
-        for (const prompt of newPrompts) {
-          const cleaned = String(prompt).trim();
-          if (!cleaned) continue;
-          if (uniquePrompts.has(cleaned)) continue;
-          uniquePrompts.add(cleaned);
-          orderedPrompts.push(cleaned);
-          addedThisBatch += 1;
-          if (uniquePrompts.size >= totalCount) break;
+        let addedThisWave = 0;
+        let hadWaveError = false;
+        let lastWaveError: unknown = null;
+
+        for (const result of results) {
+          if (result.status === 'rejected') {
+            hadWaveError = true;
+            lastWaveError = result.reason;
+            continue;
+          }
+
+          const newPrompts = result.value;
+          for (const prompt of newPrompts) {
+            const cleaned = String(prompt).trim();
+            if (!cleaned) continue;
+            if (uniquePrompts.has(cleaned)) continue;
+            uniquePrompts.add(cleaned);
+            orderedPrompts.push(cleaned);
+            addedThisWave += 1;
+            if (uniquePrompts.size >= totalCount) break;
+          }
         }
 
         // Update output in real-time so user sees progress
@@ -300,7 +334,12 @@ export function PromptGenerator({ hasActiveKeys, apiKeys }: PromptGeneratorProps
           totalBatches 
         });
 
-        if (addedThisBatch === 0) {
+        if (hadWaveError) {
+          hadError = true;
+          console.error(`Wave error (latest batch ${batchNum}):`, lastWaveError);
+        }
+
+        if (addedThisWave === 0) {
           noProgressCount += 1;
         } else {
           noProgressCount = 0;
@@ -357,7 +396,7 @@ export function PromptGenerator({ hasActiveKeys, apiKeys }: PromptGeneratorProps
         description: `Successfully generated ${orderedPrompts.length} prompts.`,
       });
     }
-  }, [theme, provider, model, outputType, styleMode, mood, negativePrompt, promptCount, minWords, maxWords, hasActiveProviderKeys, toast]);
+  }, [theme, provider, model, outputType, styleMode, mood, negativePrompt, promptCount, parallelEnabled, minWords, maxWords, hasActiveProviderKeys, activeProviderKeyCount, toast]);
 
   // Cancel generation
   const handleCancel = useCallback(() => {
@@ -574,6 +613,31 @@ export function PromptGenerator({ hasActiveKeys, apiKeys }: PromptGeneratorProps
               className="h-11 bg-muted/50 border-border"
               disabled={!hasActiveKeys || loading}
             />
+          </div>
+
+          {/* Parallel Batching Toggle */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between rounded-lg border border-border bg-muted/20 px-3 py-2">
+              <div className="space-y-0.5">
+                <Label htmlFor="parallel-batches" className="text-sm">
+                  Parallel Batches
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  {parallelEnabled
+                    ? `Enabled - up to ${Math.max(1, activeProviderKeyCount)} concurrent requests`
+                    : 'Disabled - requests run one by one'}
+                </p>
+              </div>
+              <Switch
+                id="parallel-batches"
+                checked={parallelEnabled}
+                onCheckedChange={setParallelEnabled}
+                disabled={!hasActiveKeys || loading}
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Parallel mode distributes batches across your active API keys for faster completion.
+            </p>
           </div>
 
           {/* Word Count Sliders */}
