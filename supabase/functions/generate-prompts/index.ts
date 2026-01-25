@@ -1,3 +1,11 @@
+// ============================================================================
+// SINGLE-BATCH EDGE FUNCTION
+// ============================================================================
+// This function generates ONE batch of prompts per invocation.
+// All batching, looping, and delays are handled CLIENT-SIDE to avoid
+// Vercel serverless timeouts. Each call completes in under 10 seconds.
+// ============================================================================
+
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { decryptKeyWithFallback } from "../_shared/encryption.ts";
@@ -7,9 +15,9 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const BATCH_SIZE = 20;
-const BATCH_DELAY_MS = 1200;
+// Retry logic for single batch only
 const MAX_RETRIES = 2;
+const RETRY_DELAY_MS = 1000;
 const COOLDOWN_DURATION_MS = 60000;
 
 // Input validation constants
@@ -17,7 +25,7 @@ const MAX_THEME_LENGTH = 200;
 const MAX_NEGATIVE_PROMPT_LENGTH = 500;
 const MIN_WORD_COUNT = 10;
 const MAX_WORD_COUNT = 60;
-const MAX_PROMPT_COUNT = 1000;
+const MAX_BATCH_SIZE = 25;
 
 // Valid output types (LEVEL 1 - MANDATORY)
 const VALID_OUTPUT_TYPES = ['photo', 'video', 'vector', 'illustration', 'typography', 'ui_screen'];
@@ -54,17 +62,11 @@ interface BatchResult {
   tokensUsed: number;
 }
 
-interface KeyRotationState {
-  currentIndex: number;
-  keys: ApiKeyRecord[];
-}
-
 function getAvailableKeys(keys: ApiKeyRecord[], provider: string): ApiKeyRecord[] {
   const now = new Date();
   
   return keys
     .filter(key => {
-      // Filter by provider
       if (key.provider !== provider) return false;
       
       if (key.cooldown_until) {
@@ -370,10 +372,8 @@ Generate ${batchSize} NEW prompts NOW:`;
 function parseModelOutput(content: string, batchSize: number): string[] {
   const prompts: string[] = [];
   
-  // TEXT format: parse as numbered list
   const lines = content.split('\n');
   for (const line of lines) {
-    // Match patterns like "1. prompt", "1) prompt", "1: prompt", or just numbered lines
     const match = line.match(/^\s*\d+[\.\)\:]\s*(.+)/);
     if (match && match[1]) {
       const prompt = match[1].replace(/^["']|["']$/g, '').trim();
@@ -398,7 +398,6 @@ function parseModelOutput(content: string, batchSize: number): string[] {
 
 function validatePromptBasic(prompt: string, minWords: number, maxWords: number): boolean {
   const words = prompt.split(/\s+/).length;
-  // Allow some tolerance (80% min, 120% max)
   return words >= minWords * 0.8 && words <= maxWords * 1.2 && prompt.length > 20;
 }
 
@@ -434,13 +433,11 @@ async function generateBatch(
 
   const endpoint = PROVIDER_ENDPOINTS[provider as keyof typeof PROVIDER_ENDPOINTS];
   
-  // Build headers based on provider
   const headers: Record<string, string> = {
     "Authorization": `Bearer ${apiKey}`,
     "Content-Type": "application/json",
   };
   
-  // OpenRouter requires additional headers
   if (provider === 'openrouter') {
     headers["HTTP-Referer"] = "https://promptgen.lovable.app";
     headers["X-Title"] = "PromptGen";
@@ -482,10 +479,7 @@ async function generateBatch(
 
   console.log(`Raw model output (first 500 chars): ${content.slice(0, 500)}`);
 
-  // Parse as plain text numbered list
   const prompts = parseModelOutput(content, batchSize);
-  
-  // Validate prompts
   const validPrompts = prompts.filter(p => validatePromptBasic(p, minWords, maxWords));
 
   console.log(`Parsed ${prompts.length} prompts, ${validPrompts.length} valid after filtering`);
@@ -496,9 +490,10 @@ async function generateBatch(
   };
 }
 
-async function generateBatchWithRotation(
+// Generate ONE batch with key rotation (retries within single batch only)
+async function generateSingleBatchWithRotation(
   supabase: SupabaseClient,
-  rotationState: KeyRotationState,
+  keys: ApiKeyRecord[],
   encryptionKey: string,
   provider: string,
   theme: string,
@@ -516,7 +511,7 @@ async function generateBatchWithRotation(
 ): Promise<{ result: BatchResult; usedKeyId: string }> {
   let lastError: Error | null = null;
   
-  const availableKeys = getAvailableKeys(rotationState.keys, provider);
+  const availableKeys = getAvailableKeys(keys, provider);
   
   if (availableKeys.length === 0) {
     throw new Error(`No active ${provider === 'groq' ? 'Groq' : 'OpenRouter'} API keys available. Please add a key or wait for cooldown.`);
@@ -529,7 +524,7 @@ async function generateBatchWithRotation(
       try {
         if (retry > 0) {
           console.log(`Retry ${retry} for batch ${batchNumber} with key ${keyRecord.id.slice(0, 8)}`);
-          await delay(BATCH_DELAY_MS * (retry + 1));
+          await delay(RETRY_DELAY_MS * (retry + 1));
         }
         
         const result = await generateBatch(
@@ -549,15 +544,15 @@ async function generateBatchWithRotation(
           previousPrompts
         );
         
-        // CRITICAL: Check if we got any prompts
         if (result.prompts.length === 0) {
           console.warn(`Batch ${batchNumber} returned 0 prompts, retrying...`);
           if (retry < MAX_RETRIES) {
-            continue; // Try again
+            continue;
           }
           throw new Error("EMPTY_BATCH");
         }
         
+        // Update key usage
         await supabase
           .from("api_keys")
           .update({ 
@@ -565,9 +560,6 @@ async function generateBatchWithRotation(
             cooldown_until: null 
           } as Record<string, unknown>)
           .eq("id", keyRecord.id);
-        
-        keyRecord.last_used_at = new Date().toISOString();
-        keyRecord.cooldown_until = null;
         
         return { result, usedKeyId: keyRecord.id };
       } catch (error) {
@@ -582,10 +574,8 @@ async function generateBatchWithRotation(
             .update({ cooldown_until: cooldownUntil } as Record<string, unknown>)
             .eq("id", keyRecord.id);
           
-          keyRecord.cooldown_until = cooldownUntil;
-          
           console.log(`Key ${keyRecord.id.slice(0, 8)} set to cooldown until ${cooldownUntil}`);
-          break;
+          break; // Try next key
         }
         
         if ((error as Error).message === "INVALID_KEY") {
@@ -595,7 +585,7 @@ async function generateBatchWithRotation(
             .eq("id", keyRecord.id);
           
           console.log(`Key ${keyRecord.id.slice(0, 8)} marked as inactive (invalid)`);
-          break;
+          break; // Try next key
         }
       }
     }
@@ -604,6 +594,9 @@ async function generateBatchWithRotation(
   throw lastError || new Error("All keys exhausted or in cooldown");
 }
 
+// ============================================================================
+// HTTP HANDLER - Single batch per request
+// ============================================================================
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -634,6 +627,7 @@ serve(async (req) => {
       );
     }
 
+    // Parse request body - NEW SINGLE-BATCH PARAMETERS
     const { 
       theme, 
       provider = 'groq',
@@ -642,7 +636,11 @@ serve(async (req) => {
       styleMode = null,
       mood = null,
       negativePrompt = null,
-      count = 20, 
+      // Single-batch specific parameters (sent by frontend for each batch)
+      batchSize = 20,
+      batchNumber = 1,
+      startNumber = 1,
+      previousPrompts = [],
       minWords = 22, 
       maxWords = 35 
     } = await req.json();
@@ -662,26 +660,20 @@ serve(async (req) => {
       );
     }
 
-    // Validate provider
+    // Validate inputs
     const validProvider = VALID_PROVIDERS.includes(provider) ? provider : 'groq';
-
-    // Validate output type (LEVEL 1 - MANDATORY)
     const validOutputType = VALID_OUTPUT_TYPES.includes(outputType) ? outputType : 'illustration';
-    
-    // Validate style mode (LEVEL 2 - OPTIONAL)
     const validStyleMode = styleMode && VALID_STYLE_MODES.includes(styleMode) ? styleMode : null;
-    
-    // Validate mood (LEVEL 3 - OPTIONAL)
     const validMood = mood && VALID_MOODS.includes(mood) ? mood : null;
-    
-    // Sanitize negative prompt
     const validNegativePrompt = sanitizeNegativePrompt(negativePrompt);
-
-    // Validate and sanitize numeric inputs
-    const totalCount = Math.min(Math.max(1, Number(count) || 20), MAX_PROMPT_COUNT);
+    const validBatchSize = Math.min(Math.max(1, Number(batchSize) || 20), MAX_BATCH_SIZE);
+    const validBatchNumber = Math.max(1, Number(batchNumber) || 1);
+    const validStartNumber = Math.max(1, Number(startNumber) || 1);
     const validMinWords = Math.min(Math.max(MIN_WORD_COUNT, Number(minWords) || 22), MAX_WORD_COUNT);
     const validMaxWords = Math.min(Math.max(validMinWords + 5, Number(maxWords) || 35), MAX_WORD_COUNT);
+    const validPreviousPrompts = Array.isArray(previousPrompts) ? previousPrompts.slice(-5) : [];
 
+    // Fetch user's API keys
     const { data: keys, error: keysError } = await supabase
       .from("api_keys")
       .select("id, encrypted_key, provider, last_used_at, cooldown_until")
@@ -695,133 +687,66 @@ serve(async (req) => {
       );
     }
 
-    // Check if we have keys for the selected provider
     const providerKeys = keys.filter(k => k.provider === validProvider);
     if (providerKeys.length === 0) {
       return new Response(
-        JSON.stringify({ error: `No active ${validProvider === 'groq' ? 'Groq' : 'OpenRouter'} API keys found. Please add a ${validProvider === 'groq' ? 'Groq' : 'OpenRouter'} key or switch providers.` }),
+        JSON.stringify({ error: `No active ${validProvider === 'groq' ? 'Groq' : 'OpenRouter'} API keys found.` }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    const rotationState: KeyRotationState = {
-      currentIndex: 0,
-      keys: keys as ApiKeyRecord[],
-    };
+    console.log(`[Batch ${validBatchNumber}] Generating ${validBatchSize} ${getOutputTypeLabel(validOutputType)} prompts (start: ${validStartNumber})`);
 
-    const numBatches = Math.ceil(totalCount / BATCH_SIZE);
-    console.log(`Generating ${totalCount} ${getOutputTypeLabel(validOutputType)} prompts in ${numBatches} batch(es) with ${providerKeys.length} available ${validProvider} key(s)`);
-    console.log(`Provider: ${validProvider}, Style: ${validStyleMode || 'none'}, Mood: ${validMood || 'none'}`);
+    // Generate ONE batch
+    const { result, usedKeyId } = await generateSingleBatchWithRotation(
+      supabase,
+      keys as ApiKeyRecord[],
+      encryptionKey,
+      validProvider,
+      theme,
+      validOutputType,
+      validStyleMode,
+      validMood,
+      validNegativePrompt,
+      model,
+      validBatchNumber,
+      validBatchSize,
+      validStartNumber,
+      validMinWords,
+      validMaxWords,
+      validPreviousPrompts
+    );
 
-    const allPrompts: string[] = [];
-    let totalTokensUsed = 0;
-
-    for (let batchNum = 1; batchNum <= numBatches; batchNum++) {
-      const isLastBatch = batchNum === numBatches;
-      const batchSize = isLastBatch ? (totalCount - (batchNum - 1) * BATCH_SIZE) : BATCH_SIZE;
-      const startNumber = (batchNum - 1) * BATCH_SIZE + 1;
-      
-      console.log(`Processing batch ${batchNum}/${numBatches} (prompts ${startNumber}-${startNumber + batchSize - 1})`);
-
-      try {
-        const { result, usedKeyId } = await generateBatchWithRotation(
-          supabase,
-          rotationState,
-          encryptionKey,
-          validProvider,
-          theme,
-          validOutputType,
-          validStyleMode,
-          validMood,
-          validNegativePrompt,
-          model,
-          batchNum,
-          batchSize,
-          startNumber,
-          validMinWords,
-          validMaxWords,
-          allPrompts
-        );
-
-        allPrompts.push(...result.prompts);
-        totalTokensUsed += result.tokensUsed;
-
-        console.log(`Batch ${batchNum} complete: ${result.prompts.length} prompts, ${result.tokensUsed} tokens, key ${usedKeyId.slice(0, 8)}`);
-
-        if (!isLastBatch) {
-          await delay(BATCH_DELAY_MS);
-        }
-      } catch (error) {
-        console.error(`Batch ${batchNum} failed:`, error);
-        
-        if (allPrompts.length > 0) {
-          console.log(`Returning partial results: ${allPrompts.length} prompts`);
-          
-          await supabase.from("prompt_logs").insert({
-            user_id: user.id,
-            model: model || (validProvider === 'groq' ? "llama-3.3-70b-versatile" : "xiaomi/mimo-v2-flash:free"),
-            prompt_count: allPrompts.length,
-            tokens_used: totalTokensUsed,
-          } as Record<string, unknown>);
-
-          return new Response(
-            JSON.stringify({ 
-              prompts: allPrompts,
-              provider: validProvider,
-              outputType: validOutputType,
-              styleMode: validStyleMode,
-              mood: validMood,
-              partial: true,
-              completedBatches: batchNum - 1,
-              totalBatches: numBatches,
-              message: `Generated ${allPrompts.length} of ${totalCount} prompts. Some batches failed.`
-            }),
-            { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-          );
-        }
-
-        // CRITICAL: Never return success with 0 prompts
-        const errorMessage = (error as Error).message || "Failed to generate prompts";
-        return new Response(
-          JSON.stringify({ error: errorMessage.includes("API keys") ? errorMessage : "Failed to generate prompts. Please try again." }),
-          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-    }
-
-    // CRITICAL: Final check - never return success with 0 prompts
-    if (allPrompts.length === 0) {
-      return new Response(
-        JSON.stringify({ error: "Generation completed but no valid prompts were produced. Please try again with different settings." }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
+    // Log this batch
     await supabase.from("prompt_logs").insert({
       user_id: user.id,
       model: model || (validProvider === 'groq' ? "llama-3.3-70b-versatile" : "xiaomi/mimo-v2-flash:free"),
-      prompt_count: allPrompts.length,
-      tokens_used: totalTokensUsed,
+      prompt_count: result.prompts.length,
+      tokens_used: result.tokensUsed,
     } as Record<string, unknown>);
 
-    console.log(`Generation complete: ${allPrompts.length} prompts, ${totalTokensUsed} total tokens`);
+    console.log(`[Batch ${validBatchNumber}] Complete: ${result.prompts.length} prompts, ${result.tokensUsed} tokens, key ${usedKeyId.slice(0, 8)}`);
 
+    // Return single batch result
     return new Response(
       JSON.stringify({ 
-        prompts: allPrompts,
+        prompts: result.prompts,
+        tokensUsed: result.tokensUsed,
+        batchNumber: validBatchNumber,
         provider: validProvider,
         outputType: validOutputType,
-        styleMode: validStyleMode,
-        mood: validMood,
-        totalBatches: numBatches,
-        completedBatches: numBatches
+        success: true
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error) {
     console.error("Error:", error);
+    const errorMessage = (error as Error).message || "An unexpected error occurred";
     return new Response(
-      JSON.stringify({ error: "An unexpected error occurred" }),
+      JSON.stringify({ 
+        error: errorMessage.includes("API keys") ? errorMessage : "Failed to generate prompts. Please try again.",
+        success: false
+      }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
