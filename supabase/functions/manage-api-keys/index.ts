@@ -1,10 +1,26 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { encryptKey, decryptKeyWithFallback, maskKey } from "../_shared/encryption.ts";
+import { encryptKey, maskKey } from "../_shared/encryption.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
+
+// Provider-specific validation
+const PROVIDER_CONFIGS = {
+  groq: {
+    prefix: 'gsk_',
+    name: 'Groq',
+    minLength: 20,
+    maxLength: 200,
+  },
+  openrouter: {
+    prefix: 'sk-or-',
+    name: 'OpenRouter',
+    minLength: 20,
+    maxLength: 200,
+  },
 };
 
 serve(async (req) => {
@@ -37,7 +53,7 @@ serve(async (req) => {
       );
     }
 
-    const { action, apiKey, label } = await req.json();
+    const { action, apiKey, provider = 'groq', label } = await req.json();
 
     // Validate action parameter
     const validActions = ["add", "get_decrypted", "list", "delete", "toggle"];
@@ -49,6 +65,17 @@ serve(async (req) => {
     }
 
     if (action === "add") {
+      // Validate provider
+      const validProviders = ['groq', 'openrouter'];
+      if (!validProviders.includes(provider)) {
+        return new Response(
+          JSON.stringify({ error: "Invalid provider. Must be 'groq' or 'openrouter'" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      const providerConfig = PROVIDER_CONFIGS[provider as keyof typeof PROVIDER_CONFIGS];
+
       // Check key count
       const { count } = await supabase
         .from("api_keys")
@@ -63,15 +90,15 @@ serve(async (req) => {
       }
 
       // Validate the API key format
-      if (!apiKey || typeof apiKey !== "string" || !apiKey.startsWith("gsk_")) {
+      if (!apiKey || typeof apiKey !== "string" || !apiKey.startsWith(providerConfig.prefix)) {
         return new Response(
-          JSON.stringify({ error: "Invalid API key format. Groq keys start with 'gsk_'" }),
+          JSON.stringify({ error: `Invalid API key format. ${providerConfig.name} keys start with '${providerConfig.prefix}'` }),
           { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
 
-      // Validate API key length (Groq keys are typically 50+ characters)
-      if (apiKey.length < 20 || apiKey.length > 200) {
+      // Validate API key length
+      if (apiKey.length < providerConfig.minLength || apiKey.length > providerConfig.maxLength) {
         return new Response(
           JSON.stringify({ error: "Invalid API key length" }),
           { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -94,7 +121,7 @@ serve(async (req) => {
           encrypted_key: encryptedKey,
           key_hint: keyHint,
           label: sanitizedLabel,
-          provider: "groq",
+          provider: provider,
           is_active: true,
         });
 
@@ -116,7 +143,7 @@ serve(async (req) => {
       // Only for internal use by other edge functions
       const { data: keys, error } = await supabase
         .from("api_keys")
-        .select("id, encrypted_key, is_active")
+        .select("id, encrypted_key, provider, is_active")
         .eq("user_id", user.id)
         .eq("is_active", true);
 
@@ -127,14 +154,8 @@ serve(async (req) => {
         );
       }
 
-      // Return a random active key (simple rotation)
-      const randomKey = keys[Math.floor(Math.random() * keys.length)];
-      
-      // Use fallback decryption to support both old XOR and new AES-GCM keys
-      const decryptedKey = await decryptKeyWithFallback(randomKey.encrypted_key, encryptionKey);
-
       return new Response(
-        JSON.stringify({ apiKey: decryptedKey, keyId: randomKey.id }),
+        JSON.stringify({ keys }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }

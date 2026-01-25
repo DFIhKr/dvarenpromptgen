@@ -14,20 +14,28 @@ const COOLDOWN_DURATION_MS = 60000;
 
 // Input validation constants
 const MAX_THEME_LENGTH = 200;
+const MAX_NEGATIVE_PROMPT_LENGTH = 500;
 const MIN_WORD_COUNT = 10;
 const MAX_WORD_COUNT = 60;
 const MAX_PROMPT_COUNT = 1000;
 
 // Valid output types (LEVEL 1 - MANDATORY)
-const VALID_OUTPUT_TYPES = ['photo', 'illustration', 'vector', 'typography', 'ui_screen', 'video_prompt'];
+const VALID_OUTPUT_TYPES = ['photo', 'video', 'vector', 'illustration', 'typography', 'ui_screen'];
 
 // Valid style modes (LEVEL 2 - OPTIONAL)
-const VALID_STYLE_MODES = ['cinematic', 'glitch', 'retro', 'cyberpunk', 'minimal', 'clean', 'neon', 'vintage'];
+const VALID_STYLE_MODES = ['cinematic', 'glitch', 'retro', 'cyberpunk', 'minimal', 'analog', 'neon', 'vintage'];
 
 // Valid moods (LEVEL 3 - OPTIONAL)
 const VALID_MOODS = ['dark', 'calm', 'futuristic', 'horror', 'energetic', 'dreamy', 'mysterious', 'uplifting'];
 
-const VALID_OUTPUT_FORMATS = ['json', 'text'];
+// Valid providers
+const VALID_PROVIDERS = ['groq', 'openrouter'];
+
+// Provider endpoints
+const PROVIDER_ENDPOINTS = {
+  groq: 'https://api.groq.com/openai/v1/chat/completions',
+  openrouter: 'https://openrouter.ai/api/v1/chat/completions',
+};
 
 function delay(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -36,6 +44,7 @@ function delay(ms: number): Promise<void> {
 interface ApiKeyRecord {
   id: string;
   encrypted_key: string;
+  provider: string;
   last_used_at: string | null;
   cooldown_until: string | null;
 }
@@ -50,11 +59,14 @@ interface KeyRotationState {
   keys: ApiKeyRecord[];
 }
 
-function getAvailableKeys(keys: ApiKeyRecord[]): ApiKeyRecord[] {
+function getAvailableKeys(keys: ApiKeyRecord[], provider: string): ApiKeyRecord[] {
   const now = new Date();
   
   return keys
     .filter(key => {
+      // Filter by provider
+      if (key.provider !== provider) return false;
+      
       if (key.cooldown_until) {
         const cooldownEnd = new Date(key.cooldown_until);
         if (cooldownEnd > now) {
@@ -78,14 +90,22 @@ function sanitizeTheme(theme: string): string {
     .trim();
 }
 
+function sanitizeNegativePrompt(negativePrompt: string | null): string | null {
+  if (!negativePrompt) return null;
+  return negativePrompt
+    .slice(0, MAX_NEGATIVE_PROMPT_LENGTH)
+    .replace(/[<>&"'\\]/g, '')
+    .trim() || null;
+}
+
 function getOutputTypeLabel(outputType: string): string {
   const labels: Record<string, string> = {
     'photo': 'Photo',
-    'illustration': 'Illustration',
+    'video': 'Video',
     'vector': 'Vector',
+    'illustration': 'Illustration',
     'typography': 'Typography',
     'ui_screen': 'UI / Screen',
-    'video_prompt': 'Video Prompt',
   };
   return labels[outputType] || outputType;
 }
@@ -98,7 +118,7 @@ function getStyleModeLabel(styleMode: string | null): string | null {
     'retro': 'Retro',
     'cyberpunk': 'Cyberpunk',
     'minimal': 'Minimal',
-    'clean': 'Clean',
+    'analog': 'Analog',
     'neon': 'Neon',
     'vintage': 'Vintage',
   };
@@ -125,14 +145,13 @@ function buildPromptSystem(
   outputType: string,
   styleMode: string | null,
   mood: string | null,
+  negativePrompt: string | null,
   batchNumber: number,
   batchSize: number,
   startNumber: number,
-  endNumber: number,
   minWords: number,
   maxWords: number,
-  previousPrompts: string[],
-  outputFormat: string
+  previousPrompts: string[]
 ): string {
   const sanitizedTheme = sanitizeTheme(theme);
   const outputTypeLabel = getOutputTypeLabel(outputType);
@@ -150,6 +169,16 @@ Generate prompts for photorealistic images.
 - Include camera specifications when relevant (lens, aperture, angle)
 - Focus on lighting, composition, and realistic details
 - Use photography terminology (bokeh, depth of field, golden hour, etc.)`;
+      break;
+      
+    case 'video':
+      outputTypeRules = `
+OUTPUT TYPE: VIDEO
+Generate prompts suitable for video/animation generation.
+- Describe motion, movement, and temporal changes
+- Include camera movement (pan, zoom, tracking shot)
+- Focus on action sequences or transitional scenes
+- Suitable for AI video generation tools`;
       break;
       
     case 'illustration':
@@ -192,16 +221,6 @@ Generate prompts for interface and screen designs.
 - Use tech-inspired aesthetics and system-like visuals`;
       break;
       
-    case 'video_prompt':
-      outputTypeRules = `
-OUTPUT TYPE: VIDEO PROMPT
-Generate prompts suitable for video/animation generation.
-- Describe motion, movement, and temporal changes
-- Include camera movement (pan, zoom, tracking shot)
-- Focus on action sequences or transitional scenes
-- Suitable for AI video generation tools`;
-      break;
-      
     default:
       outputTypeRules = `
 OUTPUT TYPE: ${outputTypeLabel}
@@ -230,8 +249,8 @@ Apply this visual style to the prompts:`;
       case 'minimal':
         styleRules += ` clean and simple, reduced elements, essential forms only, whitespace`;
         break;
-      case 'clean':
-        styleRules += ` polished, professional, crisp edges, well-organized composition`;
+      case 'analog':
+        styleRules += ` film grain, analog camera feel, organic imperfections, warm tones`;
         break;
       case 'neon':
         styleRules += ` bright neon colors, glowing effects, vibrant light sources, electric feel`;
@@ -276,13 +295,24 @@ Convey this emotional tone:`;
     }
   }
 
-  // Base system prompt
+  // Build negative prompt instruction
+  let negativePromptRules = '';
+  if (negativePrompt) {
+    negativePromptRules = `
+NEGATIVE PROMPT HANDLING:
+- At the END of each generated prompt, append: " — avoid: ${negativePrompt}"
+- The negative prompt must NOT override or change the main theme
+- Keep it as a suffix, not integrated into the main description`;
+  }
+
+  // Base system prompt - TEXT ONLY OUTPUT
   const baseRules = `You are a specialized text-to-image prompt generator.
 
 THEME (NEVER OVERRIDE): ${sanitizedTheme}
 ${outputTypeRules}
 ${styleRules}
 ${moodRules}
+${negativePromptRules}
 
 CRITICAL RULES:
 1. THEME is the core concept - never replace or override it
@@ -300,12 +330,9 @@ PROMPT LENGTH RULE (STRICT):
 QUALITY RULES:
 - No generic or repetitive prompts
 - Vary sentence openings and structures
-- Each prompt must be unique and creative`;
+- Each prompt must be unique and creative
 
-  // Output format instructions - CRITICAL for parsing
-  const formatInstructions = outputFormat === 'text' 
-    ? `
-OUTPUT FORMAT: TEXT (STRICT)
+OUTPUT FORMAT: PLAIN TEXT (STRICT)
 Return ONLY a numbered list of prompts.
 Format: "1. [prompt text]" on each line.
 NO JSON, NO markdown, NO code blocks, NO explanations.
@@ -313,21 +340,12 @@ Just the numbered list, nothing else.
 
 Example output:
 1. A serene mountain landscape at dawn with mist rolling through the valleys.
-2. An ancient forest path covered in golden autumn leaves under soft sunlight.`
-    : `
-OUTPUT FORMAT: JSON (STRICT)
-Return ONLY a valid JSON array of prompt strings.
-NO markdown, NO code blocks, NO explanations, NO extra text.
-The response must start with [ and end with ]
-
-Example output:
-["A serene mountain landscape at dawn with mist rolling through the valleys.", "An ancient forest path covered in golden autumn leaves under soft sunlight."]`;
+2. An ancient forest path covered in golden autumn leaves under soft sunlight.`;
 
   if (batchNumber === 1) {
     return `${baseRules}
 
 Generate exactly ${batchSize} unique prompts.
-${formatInstructions}
 
 Generate ${batchSize} prompts NOW:`;
   }
@@ -344,64 +362,33 @@ Additional rules for continuation:
 - Maintain consistent theme and quality
 
 Previous batch ended with (DO NOT repeat these):
-${recentPrompts.map((p, i) => `  - "${p}"`).join('\n')}
-${formatInstructions}
+${recentPrompts.map((p) => `  - "${p}"`).join('\n')}
 
 Generate ${batchSize} NEW prompts NOW:`;
 }
 
-function parseModelOutput(content: string, outputFormat: string, batchSize: number): string[] {
+function parseModelOutput(content: string, batchSize: number): string[] {
   const prompts: string[] = [];
   
-  if (outputFormat === 'text') {
-    // TEXT format: parse as numbered list
-    const lines = content.split('\n');
+  // TEXT format: parse as numbered list
+  const lines = content.split('\n');
+  for (const line of lines) {
+    // Match patterns like "1. prompt", "1) prompt", "1: prompt", or just numbered lines
+    const match = line.match(/^\s*\d+[\.\)\:]\s*(.+)/);
+    if (match && match[1]) {
+      const prompt = match[1].replace(/^["']|["']$/g, '').trim();
+      if (prompt.length > 15) {
+        prompts.push(prompt);
+      }
+    }
+  }
+  
+  // Fallback: if no numbered format found, try splitting by lines
+  if (prompts.length === 0) {
     for (const line of lines) {
-      // Match patterns like "1. prompt", "1) prompt", "1: prompt", or just numbered lines
-      const match = line.match(/^\s*\d+[\.\)\:]\s*(.+)/);
-      if (match && match[1]) {
-        const prompt = match[1].replace(/^["']|["']$/g, '').trim();
-        if (prompt.length > 15) {
-          prompts.push(prompt);
-        }
-      }
-    }
-    
-    // Fallback: if no numbered format found, try splitting by lines
-    if (prompts.length === 0) {
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (trimmed.length > 20 && !trimmed.startsWith('{') && !trimmed.startsWith('[')) {
-          prompts.push(trimmed);
-        }
-      }
-    }
-  } else {
-    // JSON format: parse as JSON array
-    try {
-      // Try to find a JSON array in the content
-      const jsonMatch = content.match(/\[[\s\S]*\]/);
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[0]);
-        if (Array.isArray(parsed)) {
-          for (const item of parsed) {
-            if (typeof item === 'string' && item.length > 15) {
-              prompts.push(item.trim());
-            }
-          }
-        }
-      }
-    } catch (e) {
-      console.error('JSON parsing failed, attempting fallback:', e);
-      // Fallback: try to extract prompts from malformed JSON
-      const stringMatches = content.match(/"([^"]{20,})"/g);
-      if (stringMatches) {
-        for (const match of stringMatches) {
-          const prompt = match.slice(1, -1).trim();
-          if (prompt.length > 15) {
-            prompts.push(prompt);
-          }
-        }
+      const trimmed = line.trim();
+      if (trimmed.length > 20 && !trimmed.startsWith('{') && !trimmed.startsWith('[')) {
+        prompts.push(trimmed);
       }
     }
   }
@@ -417,43 +404,53 @@ function validatePromptBasic(prompt: string, minWords: number, maxWords: number)
 
 async function generateBatch(
   apiKey: string,
+  provider: string,
   theme: string,
   outputType: string,
   styleMode: string | null,
   mood: string | null,
+  negativePrompt: string | null,
   model: string,
   batchNumber: number,
   batchSize: number,
   startNumber: number,
-  endNumber: number,
   minWords: number,
   maxWords: number,
-  previousPrompts: string[],
-  outputFormat: string
+  previousPrompts: string[]
 ): Promise<BatchResult> {
   const systemPrompt = buildPromptSystem(
     theme,
     outputType,
     styleMode,
     mood,
+    negativePrompt,
     batchNumber,
     batchSize,
     startNumber,
-    endNumber,
     minWords,
     maxWords,
-    previousPrompts,
-    outputFormat
+    previousPrompts
   );
 
-  const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+  const endpoint = PROVIDER_ENDPOINTS[provider as keyof typeof PROVIDER_ENDPOINTS];
+  
+  // Build headers based on provider
+  const headers: Record<string, string> = {
+    "Authorization": `Bearer ${apiKey}`,
+    "Content-Type": "application/json",
+  };
+  
+  // OpenRouter requires additional headers
+  if (provider === 'openrouter') {
+    headers["HTTP-Referer"] = "https://promptgen.lovable.app";
+    headers["X-Title"] = "PromptGen";
+  }
+
+  const response = await fetch(endpoint, {
     method: "POST",
-    headers: {
-      "Authorization": `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
+    headers,
     body: JSON.stringify({
-      model: model || "llama-3.3-70b-versatile",
+      model: model || (provider === 'groq' ? "llama-3.3-70b-versatile" : "xiaomi/mimo-v2-flash:free"),
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: `Generate ${batchSize} ${getOutputTypeLabel(outputType)} prompts with theme: ${sanitizeTheme(theme)}` },
@@ -464,16 +461,16 @@ async function generateBatch(
   });
 
   if (!response.ok) {
-    const errorData = await response.json();
-    console.error("Groq API error:", errorData);
+    const errorText = await response.text();
+    console.error(`${provider} API error:`, response.status, errorText);
     
     if (response.status === 429) {
       throw new Error("RATE_LIMIT");
     }
-    if (response.status === 401) {
+    if (response.status === 401 || response.status === 403) {
       throw new Error("INVALID_KEY");
     }
-    throw new Error("API request failed");
+    throw new Error(`API request failed: ${response.status}`);
   }
 
   const data = await response.json();
@@ -485,8 +482,8 @@ async function generateBatch(
 
   console.log(`Raw model output (first 500 chars): ${content.slice(0, 500)}`);
 
-  // Parse based on output format
-  const prompts = parseModelOutput(content, outputFormat, batchSize);
+  // Parse as plain text numbered list
+  const prompts = parseModelOutput(content, batchSize);
   
   // Validate prompts
   const validPrompts = prompts.filter(p => validatePromptBasic(p, minWords, maxWords));
@@ -503,26 +500,26 @@ async function generateBatchWithRotation(
   supabase: SupabaseClient,
   rotationState: KeyRotationState,
   encryptionKey: string,
+  provider: string,
   theme: string,
   outputType: string,
   styleMode: string | null,
   mood: string | null,
+  negativePrompt: string | null,
   model: string,
   batchNumber: number,
   batchSize: number,
   startNumber: number,
-  endNumber: number,
   minWords: number,
   maxWords: number,
-  previousPrompts: string[],
-  outputFormat: string
+  previousPrompts: string[]
 ): Promise<{ result: BatchResult; usedKeyId: string }> {
   let lastError: Error | null = null;
   
-  const availableKeys = getAvailableKeys(rotationState.keys);
+  const availableKeys = getAvailableKeys(rotationState.keys, provider);
   
   if (availableKeys.length === 0) {
-    throw new Error("All API keys are in cooldown. Please wait or add more keys.");
+    throw new Error(`No active ${provider === 'groq' ? 'Groq' : 'OpenRouter'} API keys available. Please add a key or wait for cooldown.`);
   }
 
   for (const keyRecord of availableKeys) {
@@ -536,20 +533,20 @@ async function generateBatchWithRotation(
         }
         
         const result = await generateBatch(
-          apiKey, 
+          apiKey,
+          provider,
           theme,
           outputType,
           styleMode,
           mood,
+          negativePrompt,
           model, 
           batchNumber, 
           batchSize,
           startNumber,
-          endNumber,
           minWords,
           maxWords,
-          previousPrompts,
-          outputFormat
+          previousPrompts
         );
         
         // CRITICAL: Check if we got any prompts
@@ -639,11 +636,12 @@ serve(async (req) => {
 
     const { 
       theme, 
+      provider = 'groq',
       model, 
       outputType = 'illustration',
       styleMode = null,
       mood = null,
-      outputFormat = 'text',
+      negativePrompt = null,
       count = 20, 
       minWords = 22, 
       maxWords = 35 
@@ -664,6 +662,9 @@ serve(async (req) => {
       );
     }
 
+    // Validate provider
+    const validProvider = VALID_PROVIDERS.includes(provider) ? provider : 'groq';
+
     // Validate output type (LEVEL 1 - MANDATORY)
     const validOutputType = VALID_OUTPUT_TYPES.includes(outputType) ? outputType : 'illustration';
     
@@ -673,8 +674,8 @@ serve(async (req) => {
     // Validate mood (LEVEL 3 - OPTIONAL)
     const validMood = mood && VALID_MOODS.includes(mood) ? mood : null;
     
-    // Validate output format
-    const validOutputFormat = VALID_OUTPUT_FORMATS.includes(outputFormat) ? outputFormat : 'text';
+    // Sanitize negative prompt
+    const validNegativePrompt = sanitizeNegativePrompt(negativePrompt);
 
     // Validate and sanitize numeric inputs
     const totalCount = Math.min(Math.max(1, Number(count) || 20), MAX_PROMPT_COUNT);
@@ -683,13 +684,22 @@ serve(async (req) => {
 
     const { data: keys, error: keysError } = await supabase
       .from("api_keys")
-      .select("id, encrypted_key, last_used_at, cooldown_until")
+      .select("id, encrypted_key, provider, last_used_at, cooldown_until")
       .eq("user_id", user.id)
       .eq("is_active", true);
 
     if (keysError || !keys || keys.length === 0) {
       return new Response(
-        JSON.stringify({ error: "No active API keys found. Please add a Groq API key first." }),
+        JSON.stringify({ error: "No active API keys found. Please add an API key first." }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // Check if we have keys for the selected provider
+    const providerKeys = keys.filter(k => k.provider === validProvider);
+    if (providerKeys.length === 0) {
+      return new Response(
+        JSON.stringify({ error: `No active ${validProvider === 'groq' ? 'Groq' : 'OpenRouter'} API keys found. Please add a ${validProvider === 'groq' ? 'Groq' : 'OpenRouter'} key or switch providers.` }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
@@ -700,8 +710,8 @@ serve(async (req) => {
     };
 
     const numBatches = Math.ceil(totalCount / BATCH_SIZE);
-    console.log(`Generating ${totalCount} ${getOutputTypeLabel(validOutputType)} prompts in ${numBatches} batch(es) with ${keys.length} available key(s)`);
-    console.log(`Style: ${validStyleMode || 'none'}, Mood: ${validMood || 'none'}, Format: ${validOutputFormat}`);
+    console.log(`Generating ${totalCount} ${getOutputTypeLabel(validOutputType)} prompts in ${numBatches} batch(es) with ${providerKeys.length} available ${validProvider} key(s)`);
+    console.log(`Provider: ${validProvider}, Style: ${validStyleMode || 'none'}, Mood: ${validMood || 'none'}`);
 
     const allPrompts: string[] = [];
     let totalTokensUsed = 0;
@@ -710,28 +720,27 @@ serve(async (req) => {
       const isLastBatch = batchNum === numBatches;
       const batchSize = isLastBatch ? (totalCount - (batchNum - 1) * BATCH_SIZE) : BATCH_SIZE;
       const startNumber = (batchNum - 1) * BATCH_SIZE + 1;
-      const endNumber = startNumber + batchSize - 1;
       
-      console.log(`Processing batch ${batchNum}/${numBatches} (prompts ${startNumber}-${endNumber})`);
+      console.log(`Processing batch ${batchNum}/${numBatches} (prompts ${startNumber}-${startNumber + batchSize - 1})`);
 
       try {
         const { result, usedKeyId } = await generateBatchWithRotation(
           supabase,
           rotationState,
           encryptionKey,
+          validProvider,
           theme,
           validOutputType,
           validStyleMode,
           validMood,
+          validNegativePrompt,
           model,
           batchNum,
           batchSize,
           startNumber,
-          endNumber,
           validMinWords,
           validMaxWords,
-          allPrompts,
-          validOutputFormat
+          allPrompts
         );
 
         allPrompts.push(...result.prompts);
@@ -750,7 +759,7 @@ serve(async (req) => {
           
           await supabase.from("prompt_logs").insert({
             user_id: user.id,
-            model: model || "llama-3.3-70b-versatile",
+            model: model || (validProvider === 'groq' ? "llama-3.3-70b-versatile" : "xiaomi/mimo-v2-flash:free"),
             prompt_count: allPrompts.length,
             tokens_used: totalTokensUsed,
           } as Record<string, unknown>);
@@ -758,10 +767,10 @@ serve(async (req) => {
           return new Response(
             JSON.stringify({ 
               prompts: allPrompts,
+              provider: validProvider,
               outputType: validOutputType,
               styleMode: validStyleMode,
               mood: validMood,
-              outputFormat: validOutputFormat,
               partial: true,
               completedBatches: batchNum - 1,
               totalBatches: numBatches,
@@ -772,8 +781,9 @@ serve(async (req) => {
         }
 
         // CRITICAL: Never return success with 0 prompts
+        const errorMessage = (error as Error).message || "Failed to generate prompts";
         return new Response(
-          JSON.stringify({ error: "Failed to generate prompts. The model output could not be parsed. Please try again." }),
+          JSON.stringify({ error: errorMessage.includes("API keys") ? errorMessage : "Failed to generate prompts. Please try again." }),
           { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
@@ -789,7 +799,7 @@ serve(async (req) => {
 
     await supabase.from("prompt_logs").insert({
       user_id: user.id,
-      model: model || "llama-3.3-70b-versatile",
+      model: model || (validProvider === 'groq' ? "llama-3.3-70b-versatile" : "xiaomi/mimo-v2-flash:free"),
       prompt_count: allPrompts.length,
       tokens_used: totalTokensUsed,
     } as Record<string, unknown>);
@@ -799,10 +809,10 @@ serve(async (req) => {
     return new Response(
       JSON.stringify({ 
         prompts: allPrompts,
+        provider: validProvider,
         outputType: validOutputType,
         styleMode: validStyleMode,
         mood: validMood,
-        outputFormat: validOutputFormat,
         totalBatches: numBatches,
         completedBatches: numBatches
       }),

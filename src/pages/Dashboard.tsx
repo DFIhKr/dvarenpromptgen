@@ -14,6 +14,7 @@ interface ApiKey {
   id: string;
   key_hint: string;
   label: string | null;
+  provider: 'groq' | 'openrouter';
   is_active: boolean;
   created_at: string;
 }
@@ -28,11 +29,11 @@ export default function Dashboard() {
     try {
       const { data, error } = await supabase
         .from('api_keys')
-        .select('id, key_hint, label, is_active, created_at')
+        .select('id, key_hint, label, provider, is_active, created_at')
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-      setApiKeys(data || []);
+      setApiKeys((data || []) as ApiKey[]);
     } catch (error) {
       console.error('Error fetching API keys:', error);
       toast({
@@ -49,10 +50,10 @@ export default function Dashboard() {
     fetchApiKeys();
   }, []);
 
-  const handleAddKey = async (apiKey: string, label?: string) => {
+  const handleAddKey = async (apiKey: string, provider: 'groq' | 'openrouter', label?: string) => {
     try {
       const { data, error } = await supabase.functions.invoke('manage-api-keys', {
-        body: { action: 'add', apiKey, label },
+        body: { action: 'add', apiKey, provider, label },
       });
 
       if (error) throw error;
@@ -60,7 +61,7 @@ export default function Dashboard() {
 
       toast({
         title: 'API key added',
-        description: 'Your API key has been securely stored.',
+        description: `Your ${provider === 'groq' ? 'Groq' : 'OpenRouter'} API key has been securely stored.`,
       });
       fetchApiKeys();
     } catch (error) {
@@ -182,7 +183,7 @@ export default function Dashboard() {
                 No API keys yet
               </h3>
               <p className="text-sm text-muted-foreground mb-4">
-                Add your first Groq API key to start generating prompts
+                Add your first Groq or OpenRouter API key to start generating prompts
               </p>
             </div>
           ) : (
@@ -193,6 +194,7 @@ export default function Dashboard() {
                   id={key.id}
                   keyHint={key.key_hint}
                   label={key.label}
+                  provider={key.provider}
                   isActive={key.is_active}
                   createdAt={key.created_at}
                   onToggle={handleToggleKey}
@@ -226,13 +228,16 @@ export default function Dashboard() {
                 Prompt Generator
               </h2>
               <p className="text-sm text-muted-foreground">
-                Generate creative prompts using Groq's LLM models
+                Generate creative prompts using Groq or OpenRouter models
               </p>
             </div>
           </div>
 
           <div className="rounded-xl border border-border bg-card p-6">
-            <PromptGenerator hasActiveKeys={activeKeysCount > 0} />
+            <PromptGenerator 
+              hasActiveKeys={activeKeysCount > 0} 
+              apiKeys={apiKeys.map(k => ({ id: k.id, provider: k.provider, is_active: k.is_active }))}
+            />
           </div>
         </section>
       </main>

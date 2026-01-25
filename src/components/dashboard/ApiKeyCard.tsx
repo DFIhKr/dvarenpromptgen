@@ -1,26 +1,35 @@
-import { Key, Trash2, Power, PowerOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Key, PowerOff, Power, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface ApiKeyCardProps {
   id: string;
   keyHint: string;
-  label?: string | null;
+  label: string | null;
+  provider: 'groq' | 'openrouter';
   isActive: boolean;
   createdAt: string;
   onToggle: (id: string, isActive: boolean) => void;
   onDelete: (id: string) => void;
 }
 
+const PROVIDER_LABELS: Record<string, { label: string; className: string }> = {
+  groq: { label: 'Groq', className: 'bg-orange-500/20 text-orange-400' },
+  openrouter: { label: 'OpenRouter', className: 'bg-violet-500/20 text-violet-400' },
+};
+
 export function ApiKeyCard({
   id,
   keyHint,
   label,
+  provider,
   isActive,
   createdAt,
   onToggle,
   onDelete,
 }: ApiKeyCardProps) {
+  const providerInfo = PROVIDER_LABELS[provider] || PROVIDER_LABELS.groq;
+
   return (
     <div
       className={cn(
@@ -41,9 +50,14 @@ export function ApiKeyCard({
             <Key className="h-5 w-5" />
           </div>
           <div>
-            <p className="font-medium text-foreground">
-              {label || 'Groq API Key'}
-            </p>
+            <div className="flex items-center gap-2">
+              <p className="font-medium text-foreground">
+                {label || 'API Key'}
+              </p>
+              <span className={cn('px-1.5 py-0.5 text-xs font-medium rounded', providerInfo.className)}>
+                {providerInfo.label}
+              </span>
+            </div>
             <p className="text-sm font-mono text-muted-foreground">
               {keyHint}
             </p>

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Slider } from '@/components/ui/slider';
 import {
   Select,
@@ -17,42 +18,40 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Progress } from '@/components/ui/progress';
 import { ScrollArea } from '@/components/ui/scroll-area';
 
+interface ApiKey {
+  id: string;
+  provider: 'groq' | 'openrouter';
+  is_active: boolean;
+}
+
 interface PromptGeneratorProps {
   hasActiveKeys: boolean;
+  apiKeys: ApiKey[];
 }
 
-interface GeneratedPrompt {
-  id: number;
-  text: string;
-}
-
-interface JsonOutput {
-  theme: string;
-  output_type: string;
-  style_mode: string | null;
-  mood: string | null;
-  length_rule: {
-    min_words: number;
-    max_words: number;
-  };
-  prompts: GeneratedPrompt[];
-}
-
-const MODELS = [
+// Provider-specific models
+const GROQ_MODELS = [
   { value: 'meta-llama/llama-4-scout-17b-16e-instruct', label: 'Llama 4 Scout (17B)' },
   { value: 'meta-llama/llama-4-maverick-17b-128e-instruct', label: 'Llama 4 Maverick (17B)' },
   { value: 'llama-3.3-70b-versatile', label: 'Llama 3.3 (70B)' },
   { value: 'llama-3.1-8b-instant', label: 'Llama 3.1 (8B)' },
 ];
 
+const OPENROUTER_MODELS = [
+  { value: 'xiaomi/mimo-v2-flash:free', label: 'Xiaomi Mimo v2 Flash (Free)' },
+  { value: 'meta-llama/llama-3.3-70b-instruct:free', label: 'Llama 3.3 70B (Free)' },
+  { value: 'google/gemini-2.0-flash-exp:free', label: 'Gemini 2.0 Flash (Free)' },
+  { value: 'deepseek/deepseek-chat-v3-0324:free', label: 'DeepSeek Chat v3 (Free)' },
+];
+
 // LEVEL 1: Output Type (MANDATORY) - Defines WHAT kind of visual
 const OUTPUT_TYPES = [
   { value: 'photo', label: 'Photo' },
-  { value: 'illustration', label: 'Illustration' },
+  { value: 'video', label: 'Video' },
   { value: 'vector', label: 'Vector' },
+  { value: 'illustration', label: 'Illustration' },
   { value: 'typography', label: 'Typography' },
   { value: 'ui_screen', label: 'UI / Screen' },
-  { value: 'video_prompt', label: 'Video Prompt' },
 ];
 
 // LEVEL 2: Style Mode (OPTIONAL) - Defines HOW the output looks
@@ -63,7 +62,7 @@ const STYLE_MODES = [
   { value: 'retro', label: 'Retro' },
   { value: 'cyberpunk', label: 'Cyberpunk' },
   { value: 'minimal', label: 'Minimal' },
-  { value: 'clean', label: 'Clean' },
+  { value: 'analog', label: 'Analog' },
   { value: 'neon', label: 'Neon' },
   { value: 'vintage', label: 'Vintage' },
 ];
@@ -81,30 +80,43 @@ const MOODS = [
   { value: 'uplifting', label: 'Uplifting' },
 ];
 
-const OUTPUT_FORMATS = [
-  { value: 'text', label: 'TEXT' },
-  { value: 'json', label: 'JSON' },
+const PROVIDERS = [
+  { value: 'groq', label: 'Groq' },
+  { value: 'openrouter', label: 'OpenRouter' },
 ];
 
 const BATCH_SIZE = 20;
 
-export function PromptGenerator({ hasActiveKeys }: PromptGeneratorProps) {
+export function PromptGenerator({ hasActiveKeys, apiKeys }: PromptGeneratorProps) {
   const [theme, setTheme] = useState('');
-  const [model, setModel] = useState(MODELS[0].value);
+  const [provider, setProvider] = useState<'groq' | 'openrouter'>('groq');
+  const [model, setModel] = useState(GROQ_MODELS[0].value);
   const [outputType, setOutputType] = useState(OUTPUT_TYPES[0].value);
   const [styleMode, setStyleMode] = useState('none');
   const [mood, setMood] = useState('none');
-  const [outputFormat, setOutputFormat] = useState<'json' | 'text'>('text');
+  const [negativePrompt, setNegativePrompt] = useState('');
   const [promptCount, setPromptCount] = useState('20');
   const [minWords, setMinWords] = useState(22);
   const [maxWords, setMaxWords] = useState(35);
-  const [output, setOutput] = useState<JsonOutput | null>(null);
   const [textOutput, setTextOutput] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [error, setError] = useState<string | null>(null);
   const { toast } = useToast();
+
+  // Check if provider has active keys
+  const hasGroqKeys = apiKeys.some(k => k.provider === 'groq' && k.is_active);
+  const hasOpenRouterKeys = apiKeys.some(k => k.provider === 'openrouter' && k.is_active);
+  const hasActiveProviderKeys = provider === 'groq' ? hasGroqKeys : hasOpenRouterKeys;
+  const currentModels = provider === 'groq' ? GROQ_MODELS : OPENROUTER_MODELS;
+
+  // When provider changes, reset model to first available
+  const handleProviderChange = (newProvider: 'groq' | 'openrouter') => {
+    setProvider(newProvider);
+    const models = newProvider === 'groq' ? GROQ_MODELS : OPENROUTER_MODELS;
+    setModel(models[0].value);
+  };
 
   const handleCountChange = (value: string) => {
     const numericValue = value.replace(/\D/g, '');
@@ -153,6 +165,15 @@ export function PromptGenerator({ hasActiveKeys }: PromptGeneratorProps) {
       return;
     }
 
+    if (!hasActiveProviderKeys) {
+      toast({
+        variant: 'destructive',
+        title: 'No active keys',
+        description: `You need at least one active ${provider === 'groq' ? 'Groq' : 'OpenRouter'} API key.`,
+      });
+      return;
+    }
+
     const count = parseInt(promptCount) || 20;
     if (count < 1 || count > 1000) {
       toast({
@@ -164,7 +185,6 @@ export function PromptGenerator({ hasActiveKeys }: PromptGeneratorProps) {
     }
 
     setLoading(true);
-    setOutput(null);
     setTextOutput('');
     setError(null);
     setProgress({ current: 0, total: count });
@@ -173,11 +193,12 @@ export function PromptGenerator({ hasActiveKeys }: PromptGeneratorProps) {
       const { data, error: invokeError } = await supabase.functions.invoke('generate-prompts', {
         body: {
           theme: theme.trim(),
+          provider,
           model,
           outputType,
           styleMode: styleMode === 'none' ? null : styleMode,
           mood: mood === 'none' ? null : mood,
-          outputFormat,
+          negativePrompt: negativePrompt.trim() || null,
           count,
           minWords,
           maxWords,
@@ -197,33 +218,12 @@ export function PromptGenerator({ hasActiveKeys }: PromptGeneratorProps) {
         throw new Error('No prompts were generated. The model output could not be parsed correctly. Please try again.');
       }
 
-      if (outputFormat === 'text') {
-        // TEXT format: numbered list
-        const textList = prompts
-          .map((text: string, index: number) => `${index + 1}. ${text}`)
-          .join('\n');
-        setTextOutput(textList);
-        setProgress({ current: prompts.length, total: count });
-      } else {
-        // JSON format
-        const jsonOutput: JsonOutput = {
-          theme: theme.trim(),
-          output_type: getOutputTypeLabel(outputType),
-          style_mode: getStyleModeLabel(styleMode),
-          mood: getMoodLabel(mood),
-          length_rule: {
-            min_words: minWords,
-            max_words: maxWords,
-          },
-          prompts: prompts.map((text: string, index: number) => ({
-            id: index + 1,
-            text,
-          })),
-        };
-
-        setOutput(jsonOutput);
-        setProgress({ current: jsonOutput.prompts.length, total: count });
-      }
+      // TEXT format: numbered list
+      const textList = prompts
+        .map((text: string, index: number) => `${index + 1}. ${text}`)
+        .join('\n');
+      setTextOutput(textList);
+      setProgress({ current: prompts.length, total: count });
 
       if (data.partial) {
         toast({
@@ -258,53 +258,33 @@ export function PromptGenerator({ hasActiveKeys }: PromptGeneratorProps) {
   };
 
   const copyOutput = async () => {
-    if (outputFormat === 'text') {
-      if (!textOutput) return;
-      await navigator.clipboard.writeText(textOutput);
-      toast({
-        title: 'Copied!',
-        description: 'Text output copied to clipboard.',
-      });
-    } else {
-      if (!output) return;
-      await navigator.clipboard.writeText(JSON.stringify(output, null, 2));
-      toast({
-        title: 'Copied!',
-        description: 'JSON output copied to clipboard.',
-      });
-    }
+    if (!textOutput) return;
+    await navigator.clipboard.writeText(textOutput);
+    toast({
+      title: 'Copied!',
+      description: 'All prompts copied to clipboard.',
+    });
   };
 
   const downloadOutput = () => {
+    if (!textOutput) return;
     const typeSuffix = outputType.replace(/_/g, '-');
-    const filename = `prompts-${typeSuffix}-${theme.replace(/\s+/g, '-').toLowerCase()}`;
+    const filename = `prompts-${typeSuffix}-${theme.replace(/\s+/g, '-').toLowerCase()}.txt`;
     
-    if (outputFormat === 'text') {
-      if (!textOutput) return;
-      const blob = new Blob([textOutput], { type: 'text/plain' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${filename}.txt`;
-      a.click();
-      URL.revokeObjectURL(url);
-    } else {
-      if (!output) return;
-      const blob = new Blob([JSON.stringify(output, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${filename}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
-    }
+    const blob = new Blob([textOutput], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   const totalBatches = Math.ceil((parseInt(promptCount) || 0) / BATCH_SIZE);
   const isLargeGeneration = (parseInt(promptCount) || 0) > BATCH_SIZE;
   const progressPercent = progress.total > 0 ? (progress.current / progress.total) * 100 : 0;
-  const hasOutput = outputFormat === 'text' ? textOutput.length > 0 : (output?.prompts.length || 0) > 0;
-  const outputCount = outputFormat === 'text' ? textOutput.split('\n').filter(l => l.trim()).length : (output?.prompts.length || 0);
+  const hasOutput = textOutput.length > 0;
+  const outputCount = textOutput.split('\n').filter(l => l.trim()).length;
 
   return (
     <div className="space-y-6">
@@ -397,18 +377,49 @@ export function PromptGenerator({ hasActiveKeys }: PromptGeneratorProps) {
             </div>
           </div>
 
-          {/* Model and Output Format */}
+          {/* Negative Prompt (OPTIONAL) */}
+          <div className="space-y-2">
+            <Label htmlFor="negativePrompt" className="flex items-center gap-2">
+              Negative Prompt
+              <span className="text-xs text-muted-foreground font-normal">(Optional - things to avoid)</span>
+            </Label>
+            <Textarea
+              id="negativePrompt"
+              placeholder="e.g., blurry, low quality, text, watermark..."
+              value={negativePrompt}
+              onChange={(e) => setNegativePrompt(e.target.value)}
+              className="min-h-[80px] bg-muted/50 border-border resize-none"
+              disabled={!hasActiveKeys || loading}
+            />
+            <p className="text-xs text-muted-foreground">
+              Elements to exclude from generated prompts (appended as "— avoid: ...")
+            </p>
+          </div>
+
+          {/* Provider and Model */}
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="model">Model</Label>
-              <Select value={model} onValueChange={setModel} disabled={!hasActiveKeys || loading}>
+              <Label htmlFor="provider">Provider</Label>
+              <Select 
+                value={provider} 
+                onValueChange={(v) => handleProviderChange(v as 'groq' | 'openrouter')} 
+                disabled={!hasActiveKeys || loading}
+              >
                 <SelectTrigger className="h-11 bg-muted/50 border-border">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {MODELS.map((m) => (
-                    <SelectItem key={m.value} value={m.value}>
-                      {m.label}
+                  {PROVIDERS.map((p) => (
+                    <SelectItem key={p.value} value={p.value}>
+                      <div className="flex items-center gap-2">
+                        {p.label}
+                        {p.value === 'groq' && !hasGroqKeys && (
+                          <span className="text-xs text-muted-foreground">(no keys)</span>
+                        )}
+                        {p.value === 'openrouter' && !hasOpenRouterKeys && (
+                          <span className="text-xs text-muted-foreground">(no keys)</span>
+                        )}
+                      </div>
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -416,15 +427,15 @@ export function PromptGenerator({ hasActiveKeys }: PromptGeneratorProps) {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="outputFormat">Output Format</Label>
-              <Select value={outputFormat} onValueChange={(v) => setOutputFormat(v as 'json' | 'text')} disabled={!hasActiveKeys || loading}>
+              <Label htmlFor="model">Model</Label>
+              <Select value={model} onValueChange={setModel} disabled={!hasActiveKeys || loading}>
                 <SelectTrigger className="h-11 bg-muted/50 border-border">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {OUTPUT_FORMATS.map((f) => (
-                    <SelectItem key={f.value} value={f.value}>
-                      {f.label}
+                  {currentModels.map((m) => (
+                    <SelectItem key={m.value} value={m.value}>
+                      {m.label}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -491,6 +502,15 @@ export function PromptGenerator({ hasActiveKeys }: PromptGeneratorProps) {
             </div>
           </div>
 
+          {!hasActiveProviderKeys && hasActiveKeys && (
+            <Alert className="border-warning/50 bg-warning/10">
+              <AlertCircle className="h-4 w-4 text-warning" />
+              <AlertDescription>
+                You don't have active {provider === 'groq' ? 'Groq' : 'OpenRouter'} keys. Switch providers or add a new key.
+              </AlertDescription>
+            </Alert>
+          )}
+
           {isLargeGeneration && (
             <Alert className="border-primary/30 bg-primary/5">
               <Info className="h-4 w-4 text-primary" />
@@ -502,7 +522,7 @@ export function PromptGenerator({ hasActiveKeys }: PromptGeneratorProps) {
 
           <Button
             onClick={handleGenerate}
-            disabled={!hasActiveKeys || loading || !theme.trim() || !promptCount}
+            disabled={!hasActiveProviderKeys || loading || !theme.trim() || !promptCount}
             className="w-full h-12 bg-primary text-primary-foreground hover:bg-primary/90 font-semibold"
           >
             {loading ? (
@@ -542,7 +562,7 @@ export function PromptGenerator({ hasActiveKeys }: PromptGeneratorProps) {
                   className="text-muted-foreground hover:text-foreground"
                 >
                   <Copy className="h-4 w-4 mr-1" />
-                  Copy {outputFormat.toUpperCase()}
+                  Copy All
                 </Button>
                 <Button
                   variant="ghost"
@@ -572,14 +592,14 @@ export function PromptGenerator({ hasActiveKeys }: PromptGeneratorProps) {
                   <Sparkles className="h-12 w-12 mb-3 opacity-50" />
                   <p className="text-sm font-medium">{getOutputTypeLabel(outputType)} Prompts</p>
                   <p className="text-xs mt-2 text-center max-w-[220px]">
-                    {outputFormat.toUpperCase()} output with {minWords}–{maxWords} word prompts
+                    {minWords}–{maxWords} word prompts via {provider === 'groq' ? 'Groq' : 'OpenRouter'}
                   </p>
-                  {styleMode && (
+                  {getStyleModeLabel(styleMode) && (
                     <p className="text-xs mt-1 text-primary">
                       Style: {getStyleModeLabel(styleMode)}
                     </p>
                   )}
-                  {mood && (
+                  {getMoodLabel(mood) && (
                     <p className="text-xs mt-1 text-primary/80">
                       Mood: {getMoodLabel(mood)}
                     </p>
@@ -590,7 +610,7 @@ export function PromptGenerator({ hasActiveKeys }: PromptGeneratorProps) {
                     </p>
                   )}
                 </div>
-              ) : outputFormat === 'text' ? (
+              ) : (
                 /* TEXT Output */
                 <div className="space-y-2">
                   {textOutput.split('\n').filter(l => l.trim()).map((line, index) => (
@@ -615,70 +635,6 @@ export function PromptGenerator({ hasActiveKeys }: PromptGeneratorProps) {
                       </div>
                     </div>
                   ))}
-                </div>
-              ) : (
-                /* JSON Output */
-                <div className="space-y-4">
-                  {/* JSON Header Info */}
-                  <div className="p-3 rounded-lg bg-muted/50 border border-border/50">
-                    <div className="grid grid-cols-2 gap-2 text-xs">
-                      <div>
-                        <span className="text-muted-foreground">Theme:</span>{' '}
-                        <span className="text-foreground font-medium">{output?.theme}</span>
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground">Type:</span>{' '}
-                        <span className="text-foreground font-medium">{output?.output_type}</span>
-                      </div>
-                      {output?.style_mode && (
-                        <div>
-                          <span className="text-muted-foreground">Style:</span>{' '}
-                          <span className="text-foreground font-medium">{output.style_mode}</span>
-                        </div>
-                      )}
-                      {output?.mood && (
-                        <div>
-                          <span className="text-muted-foreground">Mood:</span>{' '}
-                          <span className="text-foreground font-medium">{output.mood}</span>
-                        </div>
-                      )}
-                      <div>
-                        <span className="text-muted-foreground">Words:</span>{' '}
-                        <span className="text-foreground font-medium">
-                          {output?.length_rule.min_words}–{output?.length_rule.max_words}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  {/* Prompt Cards */}
-                  <div className="space-y-2">
-                    {output?.prompts.map((prompt, index) => (
-                      <div
-                        key={prompt.id}
-                        className="group p-3 rounded-lg bg-card border border-border/50 hover:border-primary/30 transition-colors"
-                      >
-                        <div className="flex items-start gap-3">
-                          <span className="text-xs font-mono text-muted-foreground bg-muted px-1.5 py-0.5 rounded shrink-0">
-                            {prompt.id}
-                          </span>
-                          <p className="flex-1 text-sm text-foreground">{prompt.text}</p>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => copyPrompt(prompt.text, index)}
-                            className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
-                          >
-                            {copiedIndex === index ? (
-                              <Check className="h-3.5 w-3.5 text-primary" />
-                            ) : (
-                              <Copy className="h-3.5 w-3.5" />
-                            )}
-                          </Button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
                 </div>
               )}
             </div>
