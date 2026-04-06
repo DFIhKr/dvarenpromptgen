@@ -12,7 +12,7 @@ export default function Index() {
     {
       icon: Key,
       title: 'Your Own API Keys',
-      description: 'Use your personal Groq API keys. We never share or access other users\' keys.',
+      description: 'Use your personal Groq, OpenRouter, or Gemini API keys. We never share or access other users\' keys.',
     },
     {
       icon: Shield,
@@ -27,13 +27,12 @@ export default function Index() {
     {
       icon: Sparkles,
       title: 'Powerful Models',
-      description: 'Access Llama 4 Scout, Maverick, and other cutting-edge models from Groq.',
+      description: 'Access Llama 4, DeepSeek, Gemini 2.5/3.0, and other cutting-edge models.',
     },
   ];
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Header */}
       <header className="border-b border-border/50 bg-background/80 backdrop-blur-sm fixed top-0 w-full z-50">
         <div className="container mx-auto px-4 h-16 flex items-center justify-between">
           <Logo />
@@ -64,47 +63,46 @@ export default function Index() {
         </div>
       </header>
 
-      {/* Hero Section */}
       <section className="pt-32 pb-20 relative overflow-hidden">
         <div className="absolute inset-0" style={{ background: 'var(--gradient-glow)' }} />
         <div className="container mx-auto px-4 relative z-10">
           <div className="max-w-3xl mx-auto text-center">
             <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-primary/10 border border-primary/20 text-primary text-sm font-medium mb-8">
               <Sparkles className="h-4 w-4" />
-              Powered by Groq's Ultra-Fast LLMs
+              Powered by Groq, OpenRouter & Gemini
             </div>
-            
+
             <h1 className="text-5xl md:text-6xl font-bold text-foreground mb-6 leading-tight">
               Generate powerful prompts with{' '}
               <span className="text-gradient">your own API keys</span>
             </h1>
-            
+
             <p className="text-xl text-muted-foreground mb-10 max-w-2xl mx-auto">
-              A secure, private prompt generator where you bring your own Groq API keys. 
+              A secure, private prompt generator where you bring your own API keys.
               Your data stays yours—we never see or store your prompts.
             </p>
-            
+
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
               <Link to="/register">
-                <Button 
-                  size="lg" 
+                <Button
+                  size="lg"
                   className="h-14 px-8 text-lg bg-primary text-primary-foreground hover:bg-primary/90 glow-primary"
                 >
                   Start Generating
                   <ArrowRight className="ml-2 h-5 w-5" />
                 </Button>
               </Link>
-              <a 
-                href="https://console.groq.com/keys" 
-                target="_blank" 
+              <a
+                href="https://aistudio.google.com/apikey"
+                target="_blank"
                 rel="noopener noreferrer"
               >
-                <Button 
-                  variant="outline" 
+                <Button
+                  variant="outline"
                   size="lg"
                   className="h-14 px-8 text-lg border-border hover:bg-muted"
                 >
-                  Get Groq API Key
+                  Get Gemini API Key
                 </Button>
               </a>
             </div>
@@ -112,7 +110,6 @@ export default function Index() {
         </div>
       </section>
 
-      {/* Features Section */}
       <section className="py-20 border-t border-border/50">
         <div className="container mx-auto px-4">
           <div className="text-center mb-16">
@@ -145,7 +142,6 @@ export default function Index() {
         </div>
       </section>
 
-      {/* CTA Section */}
       <section className="py-20 border-t border-border/50">
         <div className="container mx-auto px-4">
           <div className="max-w-2xl mx-auto text-center">
@@ -153,11 +149,11 @@ export default function Index() {
               Ready to generate prompts?
             </h2>
             <p className="text-lg text-muted-foreground mb-8">
-              Sign up for free and start using your Groq API keys in seconds.
+              Sign up for free and start using your API keys in seconds.
             </p>
             <Link to="/register">
-              <Button 
-                size="lg" 
+              <Button
+                size="lg"
                 className="h-14 px-8 text-lg bg-primary text-primary-foreground hover:bg-primary/90"
               >
                 Create Free Account
@@ -168,7 +164,6 @@ export default function Index() {
         </div>
       </section>
 
-      {/* Footer */}
       <footer className="py-8 border-t border-border/50">
         <div className="container mx-auto px-4">
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4">

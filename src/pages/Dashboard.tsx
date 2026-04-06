@@ -14,7 +14,7 @@ interface ApiKey {
   id: string;
   key_hint: string;
   label: string | null;
-  provider: 'groq' | 'openrouter';
+  provider: 'groq' | 'openrouter' | 'gemini';
   is_active: boolean;
   created_at: string;
 }
@@ -50,7 +50,7 @@ export default function Dashboard() {
     fetchApiKeys();
   }, []);
 
-  const handleAddKey = async (apiKey: string, provider: 'groq' | 'openrouter', label?: string) => {
+  const handleAddKey = async (apiKey: string, provider: 'groq' | 'openrouter' | 'gemini', label?: string) => {
     try {
       const { data, error } = await supabase.functions.invoke('manage-api-keys', {
         body: { action: 'add', apiKey, provider, label },
@@ -59,9 +59,10 @@ export default function Dashboard() {
       if (error) throw error;
       if (data.error) throw new Error(data.error);
 
+      const providerName = provider === 'groq' ? 'Groq' : provider === 'openrouter' ? 'OpenRouter' : 'Gemini';
       toast({
         title: 'API key added',
-        description: `Your ${provider === 'groq' ? 'Groq' : 'OpenRouter'} API key has been securely stored.`,
+        description: `Your ${providerName} API key has been securely stored.`,
       });
       fetchApiKeys();
     } catch (error) {
@@ -128,7 +129,6 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Header */}
       <header className="border-b border-border bg-card/50 backdrop-blur-sm sticky top-0 z-50">
         <div className="container mx-auto px-4 h-16 flex items-center justify-between">
           <Logo />
@@ -151,7 +151,6 @@ export default function Dashboard() {
       </header>
 
       <main className="container mx-auto px-4 py-8 max-w-6xl">
-        {/* API Keys Section */}
         <section className="mb-12">
           <div className="flex items-center justify-between mb-6">
             <div className="flex items-center gap-3">
@@ -183,7 +182,7 @@ export default function Dashboard() {
                 No API keys yet
               </h3>
               <p className="text-sm text-muted-foreground mb-4">
-                Add your first Groq or OpenRouter API key to start generating prompts
+                Add your first Groq, OpenRouter, or Gemini API key to start generating prompts
               </p>
             </div>
           ) : (
@@ -205,7 +204,6 @@ export default function Dashboard() {
           )}
         </section>
 
-        {/* Prompt Generator Section */}
         <section>
           <div className="flex items-center gap-3 mb-6">
             <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-primary/20 text-primary">
@@ -228,14 +226,14 @@ export default function Dashboard() {
                 Prompt Generator
               </h2>
               <p className="text-sm text-muted-foreground">
-                Generate creative prompts using Groq or OpenRouter models
+                Generate creative prompts using Groq, OpenRouter, or Gemini models
               </p>
             </div>
           </div>
 
           <div className="rounded-xl border border-border bg-card p-6">
-            <PromptGenerator 
-              hasActiveKeys={activeKeysCount > 0} 
+            <PromptGenerator
+              hasActiveKeys={activeKeysCount > 0}
               apiKeys={apiKeys.map(k => ({ id: k.id, provider: k.provider, is_active: k.is_active }))}
             />
           </div>
