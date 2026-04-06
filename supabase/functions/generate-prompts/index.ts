@@ -15,31 +15,21 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-// Retry logic for single batch only
 const MAX_RETRIES = 2;
 const RETRY_DELAY_MS = 1000;
 const COOLDOWN_DURATION_MS = 60000;
 
-// Input validation constants
 const MAX_THEME_LENGTH = 200;
 const MAX_NEGATIVE_PROMPT_LENGTH = 500;
 const MIN_WORD_COUNT = 10;
 const MAX_WORD_COUNT = 60;
 const MAX_BATCH_SIZE = 25;
 
-// Valid output types (LEVEL 1 - MANDATORY)
 const VALID_OUTPUT_TYPES = ['photo', 'video', 'vector', 'illustration', 'typography', 'ui_screen'];
-
-// Valid style modes (LEVEL 2 - OPTIONAL)
 const VALID_STYLE_MODES = ['cinematic', 'glitch', 'retro', 'cyberpunk', 'minimal', 'analog', 'neon', 'vintage'];
-
-// Valid moods (LEVEL 3 - OPTIONAL)
 const VALID_MOODS = ['dark', 'calm', 'futuristic', 'horror', 'energetic', 'dreamy', 'mysterious', 'uplifting'];
+const VALID_PROVIDERS = ['groq', 'openrouter', 'gemini'];
 
-// Valid providers
-const VALID_PROVIDERS = ['groq', 'openrouter'];
-
-// Provider endpoints
 const PROVIDER_ENDPOINTS = {
   groq: 'https://api.groq.com/openai/v1/chat/completions',
   openrouter: 'https://openrouter.ai/api/v1/chat/completions',
@@ -64,11 +54,9 @@ interface BatchResult {
 
 function getAvailableKeys(keys: ApiKeyRecord[], provider: string): ApiKeyRecord[] {
   const now = new Date();
-  
   return keys
     .filter(key => {
       if (key.provider !== provider) return false;
-      
       if (key.cooldown_until) {
         const cooldownEnd = new Date(key.cooldown_until);
         if (cooldownEnd > now) {
@@ -86,313 +74,126 @@ function getAvailableKeys(keys: ApiKeyRecord[], provider: string): ApiKeyRecord[
 }
 
 function sanitizeTheme(theme: string): string {
-  return theme
-    .slice(0, MAX_THEME_LENGTH)
-    .replace(/[<>&"'\\]/g, '')
-    .trim();
+  return theme.slice(0, MAX_THEME_LENGTH).replace(/[<>&"'\\]/g, '').trim();
 }
 
 function sanitizeNegativePrompt(negativePrompt: string | null): string | null {
   if (!negativePrompt) return null;
-  return negativePrompt
-    .slice(0, MAX_NEGATIVE_PROMPT_LENGTH)
-    .replace(/[<>&"'\\]/g, '')
-    .trim() || null;
+  return negativePrompt.slice(0, MAX_NEGATIVE_PROMPT_LENGTH).replace(/[<>&"'\\]/g, '').trim() || null;
 }
 
 function getOutputTypeLabel(outputType: string): string {
-  const labels: Record<string, string> = {
-    'photo': 'Photo',
-    'video': 'Video',
-    'vector': 'Vector',
-    'illustration': 'Illustration',
-    'typography': 'Typography',
-    'ui_screen': 'UI / Screen',
-  };
+  const labels: Record<string, string> = { 'photo': 'Photo', 'video': 'Video', 'vector': 'Vector', 'illustration': 'Illustration', 'typography': 'Typography', 'ui_screen': 'UI / Screen' };
   return labels[outputType] || outputType;
 }
 
 function getStyleModeLabel(styleMode: string | null): string | null {
   if (!styleMode) return null;
-  const labels: Record<string, string> = {
-    'cinematic': 'Cinematic',
-    'glitch': 'Glitch',
-    'retro': 'Retro',
-    'cyberpunk': 'Cyberpunk',
-    'minimal': 'Minimal',
-    'analog': 'Analog',
-    'neon': 'Neon',
-    'vintage': 'Vintage',
-  };
+  const labels: Record<string, string> = { 'cinematic': 'Cinematic', 'glitch': 'Glitch', 'retro': 'Retro', 'cyberpunk': 'Cyberpunk', 'minimal': 'Minimal', 'analog': 'Analog', 'neon': 'Neon', 'vintage': 'Vintage' };
   return labels[styleMode] || styleMode;
 }
 
 function getMoodLabel(mood: string | null): string | null {
   if (!mood) return null;
-  const labels: Record<string, string> = {
-    'dark': 'Dark',
-    'calm': 'Calm',
-    'futuristic': 'Futuristic',
-    'horror': 'Horror',
-    'energetic': 'Energetic',
-    'dreamy': 'Dreamy',
-    'mysterious': 'Mysterious',
-    'uplifting': 'Uplifting',
-  };
+  const labels: Record<string, string> = { 'dark': 'Dark', 'calm': 'Calm', 'futuristic': 'Futuristic', 'horror': 'Horror', 'energetic': 'Energetic', 'dreamy': 'Dreamy', 'mysterious': 'Mysterious', 'uplifting': 'Uplifting' };
   return labels[mood] || mood;
 }
 
 function buildPromptSystem(
-  theme: string,
-  outputType: string,
-  styleMode: string | null,
-  mood: string | null,
-  negativePrompt: string | null,
-  batchNumber: number,
-  batchSize: number,
-  startNumber: number,
-  minWords: number,
-  maxWords: number,
-  previousPrompts: string[]
+  theme: string, outputType: string, styleMode: string | null, mood: string | null,
+  negativePrompt: string | null, batchNumber: number, batchSize: number, startNumber: number,
+  minWords: number, maxWords: number, previousPrompts: string[]
 ): string {
   const sanitizedTheme = sanitizeTheme(theme);
   const outputTypeLabel = getOutputTypeLabel(outputType);
   const styleModeLabel = getStyleModeLabel(styleMode);
   const moodLabel = getMoodLabel(mood);
-  
-  // Build the core rules based on OUTPUT TYPE (Level 1 - MANDATORY)
+
   let outputTypeRules = '';
   switch (outputType) {
     case 'photo':
-      outputTypeRules = `
-OUTPUT TYPE: PHOTO
-Generate prompts for photorealistic images.
-- Describe real-world scenes, people, objects, or environments
-- Include camera specifications when relevant (lens, aperture, angle)
-- Focus on lighting, composition, and realistic details
-- Use photography terminology (bokeh, depth of field, golden hour, etc.)`;
+      outputTypeRules = `\nOUTPUT TYPE: PHOTO\nGenerate prompts for photorealistic images.\n- Describe real-world scenes, people, objects, or environments\n- Include camera specifications when relevant (lens, aperture, angle)\n- Focus on lighting, composition, and realistic details\n- Use photography terminology (bokeh, depth of field, golden hour, etc.)`;
       break;
-      
     case 'video':
-      outputTypeRules = `
-OUTPUT TYPE: VIDEO
-Generate prompts suitable for video/animation generation.
-- Describe motion, movement, and temporal changes
-- Include camera movement (pan, zoom, tracking shot)
-- Focus on action sequences or transitional scenes
-- Suitable for AI video generation tools`;
+      outputTypeRules = `\nOUTPUT TYPE: VIDEO\nGenerate prompts suitable for video/animation generation.\n- Describe motion, movement, and temporal changes\n- Include camera movement (pan, zoom, tracking shot)\n- Focus on action sequences or transitional scenes\n- Suitable for AI video generation tools`;
       break;
-      
     case 'illustration':
-      outputTypeRules = `
-OUTPUT TYPE: ILLUSTRATION
-Generate prompts for artistic illustrations.
-- Describe scenes with artistic interpretation
-- Include style references (painterly, digital art, concept art, etc.)
-- Focus on composition, color palette, and artistic mood
-- Can be stylized, fantastical, or interpretive`;
+      outputTypeRules = `\nOUTPUT TYPE: ILLUSTRATION\nGenerate prompts for artistic illustrations.\n- Describe scenes with artistic interpretation\n- Include style references (painterly, digital art, concept art, etc.)\n- Focus on composition, color palette, and artistic mood\n- Can be stylized, fantastical, or interpretive`;
       break;
-      
     case 'vector':
-      outputTypeRules = `
-OUTPUT TYPE: VECTOR
-Generate prompts for vector graphics and flat designs.
-- Focus on clean lines, geometric shapes, and flat colors
-- Describe logo-like or icon-like compositions
-- Use terms like flat design, minimalist, geometric, clean edges
-- Suitable for scalable graphics and branding`;
+      outputTypeRules = `\nOUTPUT TYPE: VECTOR\nGenerate prompts for vector graphics and flat designs.\n- Focus on clean lines, geometric shapes, and flat colors\n- Describe logo-like or icon-like compositions\n- Use terms like flat design, minimalist, geometric, clean edges\n- Suitable for scalable graphics and branding`;
       break;
-      
     case 'typography':
-      outputTypeRules = `
-OUTPUT TYPE: TYPOGRAPHY
-Generate prompts centered on text and lettering.
-- The main subject MUST be text, letters, or typography
-- Describe font styles (serif, sans-serif, script, display, etc.)
-- Include text arrangement, composition, and styling
-- Specify colors, textures, or materials for the letters`;
+      outputTypeRules = `\nOUTPUT TYPE: TYPOGRAPHY\nGenerate prompts centered on text and lettering.\n- The main subject MUST be text, letters, or typography\n- Describe font styles (serif, sans-serif, script, display, etc.)\n- Include text arrangement, composition, and styling\n- Specify colors, textures, or materials for the letters`;
       break;
-      
     case 'ui_screen':
-      outputTypeRules = `
-OUTPUT TYPE: UI / SCREEN
-Generate prompts for interface and screen designs.
-- Focus on digital interfaces, HUDs, dashboards, or system screens
-- Include UI elements (buttons, panels, data visualizations)
-- Describe screen layouts, holographic displays, or terminal interfaces
-- Use tech-inspired aesthetics and system-like visuals`;
+      outputTypeRules = `\nOUTPUT TYPE: UI / SCREEN\nGenerate prompts for interface and screen designs.\n- Focus on digital interfaces, HUDs, dashboards, or system screens\n- Include UI elements (buttons, panels, data visualizations)\n- Describe screen layouts, holographic displays, or terminal interfaces\n- Use tech-inspired aesthetics and system-like visuals`;
       break;
-      
     default:
-      outputTypeRules = `
-OUTPUT TYPE: ${outputTypeLabel}
-Generate creative visual prompts based on the theme.`;
+      outputTypeRules = `\nOUTPUT TYPE: ${outputTypeLabel}\nGenerate creative visual prompts based on the theme.`;
   }
 
-  // Build optional style modifiers (Level 2 - OPTIONAL)
   let styleRules = '';
   if (styleMode) {
-    styleRules = `
-STYLE MODE: ${styleModeLabel}
-Apply this visual style to the prompts:`;
+    styleRules = `\nSTYLE MODE: ${styleModeLabel}\nApply this visual style to the prompts:`;
     switch (styleMode) {
-      case 'cinematic':
-        styleRules += ` dramatic lighting, film-like composition, wide aspect ratio feel, movie quality`;
-        break;
-      case 'glitch':
-        styleRules += ` digital glitch effects, RGB split, pixel artifacts, data corruption, scanlines`;
-        break;
-      case 'retro':
-        styleRules += ` vintage aesthetics, old-school vibes, nostalgic feel, period-appropriate styling`;
-        break;
-      case 'cyberpunk':
-        styleRules += ` neon lights, high-tech low-life, futuristic urban, dystopian elements`;
-        break;
-      case 'minimal':
-        styleRules += ` clean and simple, reduced elements, essential forms only, whitespace`;
-        break;
-      case 'analog':
-        styleRules += ` film grain, analog camera feel, organic imperfections, warm tones`;
-        break;
-      case 'neon':
-        styleRules += ` bright neon colors, glowing effects, vibrant light sources, electric feel`;
-        break;
-      case 'vintage':
-        styleRules += ` aged appearance, historical feel, classic aesthetics, timeless quality`;
-        break;
+      case 'cinematic': styleRules += ` dramatic lighting, film-like composition, wide aspect ratio feel, movie quality`; break;
+      case 'glitch': styleRules += ` digital glitch effects, RGB split, pixel artifacts, data corruption, scanlines`; break;
+      case 'retro': styleRules += ` vintage aesthetics, old-school vibes, nostalgic feel, period-appropriate styling`; break;
+      case 'cyberpunk': styleRules += ` neon lights, high-tech low-life, futuristic urban, dystopian elements`; break;
+      case 'minimal': styleRules += ` clean and simple, reduced elements, essential forms only, whitespace`; break;
+      case 'analog': styleRules += ` film grain, analog camera feel, organic imperfections, warm tones`; break;
+      case 'neon': styleRules += ` bright neon colors, glowing effects, vibrant light sources, electric feel`; break;
+      case 'vintage': styleRules += ` aged appearance, historical feel, classic aesthetics, timeless quality`; break;
     }
   }
 
-  // Build optional mood modifiers (Level 3 - OPTIONAL)
   let moodRules = '';
   if (mood) {
-    moodRules = `
-MOOD: ${moodLabel}
-Convey this emotional tone:`;
+    moodRules = `\nMOOD: ${moodLabel}\nConvey this emotional tone:`;
     switch (mood) {
-      case 'dark':
-        moodRules += ` shadows, low-key lighting, ominous atmosphere, dramatic contrast`;
-        break;
-      case 'calm':
-        moodRules += ` peaceful, serene, tranquil atmosphere, soft tones`;
-        break;
-      case 'futuristic':
-        moodRules += ` advanced technology, forward-looking, sci-fi inspired`;
-        break;
-      case 'horror':
-        moodRules += ` unsettling, eerie, frightening elements, tension`;
-        break;
-      case 'energetic':
-        moodRules += ` dynamic, vibrant, high energy, movement and action`;
-        break;
-      case 'dreamy':
-        moodRules += ` ethereal, soft focus, fantasy-like, surreal quality`;
-        break;
-      case 'mysterious':
-        moodRules += ` enigmatic, hidden elements, intrigue, atmospheric`;
-        break;
-      case 'uplifting':
-        moodRules += ` positive, bright, hopeful, inspiring feeling`;
-        break;
+      case 'dark': moodRules += ` shadows, low-key lighting, ominous atmosphere, dramatic contrast`; break;
+      case 'calm': moodRules += ` peaceful, serene, tranquil atmosphere, soft tones`; break;
+      case 'futuristic': moodRules += ` advanced technology, forward-looking, sci-fi inspired`; break;
+      case 'horror': moodRules += ` unsettling, eerie, frightening elements, tension`; break;
+      case 'energetic': moodRules += ` dynamic, vibrant, high energy, movement and action`; break;
+      case 'dreamy': moodRules += ` ethereal, soft focus, fantasy-like, surreal quality`; break;
+      case 'mysterious': moodRules += ` enigmatic, hidden elements, intrigue, atmospheric`; break;
+      case 'uplifting': moodRules += ` positive, bright, hopeful, inspiring feeling`; break;
     }
   }
 
-  // Build negative prompt instruction
   let negativePromptRules = '';
   if (negativePrompt) {
-    negativePromptRules = `
-NEGATIVE PROMPT HANDLING:
-- At the END of each generated prompt, append: " — avoid: ${negativePrompt}"
-- The negative prompt must NOT override or change the main theme
-- Keep it as a suffix, not integrated into the main description`;
+    negativePromptRules = `\nNEGATIVE PROMPT HANDLING:\n- At the END of each generated prompt, append: " \u2014 avoid: ${negativePrompt}"\n- The negative prompt must NOT override or change the main theme\n- Keep it as a suffix, not integrated into the main description`;
   }
 
-  // Base system prompt - TEXT ONLY OUTPUT
-  const baseRules = `You are a specialized text-to-image prompt generator.
-
-THEME (NEVER OVERRIDE): ${sanitizedTheme}
-${outputTypeRules}
-${styleRules}
-${moodRules}
-${negativePromptRules}
-
-CRITICAL RULES:
-1. THEME is the core concept - never replace or override it
-2. OUTPUT TYPE defines the fundamental structure of each prompt
-3. Style Mode and Mood are OPTIONAL modifiers - only apply if specified
-4. Do NOT force glitch effects unless STYLE MODE is "Glitch"
-5. Do NOT force typography unless OUTPUT TYPE is "Typography" or "UI / Screen"
-
-PROMPT LENGTH RULE (STRICT):
-- Each prompt MUST be exactly ONE sentence
-- Word count MUST be between ${minWords} and ${maxWords} words
-- If too short → expand with more relevant detail
-- If too long → compress while keeping essential elements
-
-QUALITY RULES:
-- No generic or repetitive prompts
-- Vary sentence openings and structures
-- Each prompt must be unique and creative
-
-OUTPUT FORMAT: PLAIN TEXT (STRICT)
-Return ONLY a numbered list of prompts.
-Format: "1. [prompt text]" on each line.
-NO JSON, NO markdown, NO code blocks, NO explanations.
-Just the numbered list, nothing else.
-
-Example output:
-1. A serene mountain landscape at dawn with mist rolling through the valleys.
-2. An ancient forest path covered in golden autumn leaves under soft sunlight.`;
+  const baseRules = `You are a specialized text-to-image prompt generator.\n\nTHEME (NEVER OVERRIDE): ${sanitizedTheme}\n${outputTypeRules}\n${styleRules}\n${moodRules}\n${negativePromptRules}\n\nCRITICAL RULES:\n1. THEME is the core concept - never replace or override it\n2. OUTPUT TYPE defines the fundamental structure of each prompt\n3. Style Mode and Mood are OPTIONAL modifiers - only apply if specified\n4. Do NOT force glitch effects unless STYLE MODE is "Glitch"\n5. Do NOT force typography unless OUTPUT TYPE is "Typography" or "UI / Screen"\n\nPROMPT LENGTH RULE (STRICT):\n- Each prompt MUST be exactly ONE sentence\n- Word count MUST be between ${minWords} and ${maxWords} words\n- If too short \u2192 expand with more relevant detail\n- If too long \u2192 compress while keeping essential elements\n\nQUALITY RULES:\n- No generic or repetitive prompts\n- Vary sentence openings and structures\n- Each prompt must be unique and creative\n\nOUTPUT FORMAT: PLAIN TEXT (STRICT)\nReturn ONLY a numbered list of prompts.\nFormat: "1. [prompt text]" on each line.\nNO JSON, NO markdown, NO code blocks, NO explanations.\nJust the numbered list, nothing else.\n\nExample output:\n1. A serene mountain landscape at dawn with mist rolling through the valleys.\n2. An ancient forest path covered in golden autumn leaves under soft sunlight.`;
 
   if (batchNumber === 1) {
-    return `${baseRules}
-
-Generate exactly ${batchSize} unique prompts.
-
-Generate ${batchSize} prompts NOW:`;
+    return `${baseRules}\n\nGenerate exactly ${batchSize} unique prompts.\n\nGenerate ${batchSize} prompts NOW:`;
   }
 
   const recentPrompts = previousPrompts.slice(-5);
-  return `${baseRules}
-
-Continue generating NEW prompts only.
-Previous prompts ended at number ${startNumber - 1}.
-
-Additional rules for continuation:
-- Generate exactly ${batchSize} NEW prompts
-- Do NOT repeat concepts, metaphors, or wording from previous batches
-- Maintain consistent theme and quality
-
-Previous batch ended with (DO NOT repeat these):
-${recentPrompts.map((p) => `  - "${p}"`).join('\n')}
-
-Generate ${batchSize} NEW prompts NOW:`;
+  return `${baseRules}\n\nContinue generating NEW prompts only.\nPrevious prompts ended at number ${startNumber - 1}.\n\nAdditional rules for continuation:\n- Generate exactly ${batchSize} NEW prompts\n- Do NOT repeat concepts, metaphors, or wording from previous batches\n- Maintain consistent theme and quality\n\nPrevious batch ended with (DO NOT repeat these):\n${recentPrompts.map((p) => `  - "${p}"`).join('\n')}\n\nGenerate ${batchSize} NEW prompts NOW:`;
 }
 
 function parseModelOutput(content: string, batchSize: number): string[] {
   const prompts: string[] = [];
-  
   const lines = content.split('\n');
   for (const line of lines) {
     const match = line.match(/^\s*\d+[\.\)\:]\s*(.+)/);
     if (match && match[1]) {
       const prompt = match[1].replace(/^["']|["']$/g, '').trim();
-      if (prompt.length > 15) {
-        prompts.push(prompt);
-      }
+      if (prompt.length > 15) prompts.push(prompt);
     }
   }
-  
-  // Fallback: if no numbered format found, try splitting by lines
   if (prompts.length === 0) {
     for (const line of lines) {
       const trimmed = line.trim();
-      if (trimmed.length > 20 && !trimmed.startsWith('{') && !trimmed.startsWith('[')) {
-        prompts.push(trimmed);
-      }
+      if (trimmed.length > 20 && !trimmed.startsWith('{') && !trimmed.startsWith('[')) prompts.push(trimmed);
     }
   }
-  
   return prompts.slice(0, batchSize);
 }
 
@@ -402,265 +203,169 @@ function validatePromptBasic(prompt: string, minWords: number, maxWords: number)
 }
 
 async function generateBatch(
-  apiKey: string,
-  provider: string,
-  theme: string,
-  outputType: string,
-  styleMode: string | null,
-  mood: string | null,
-  negativePrompt: string | null,
-  model: string,
-  batchNumber: number,
-  batchSize: number,
-  startNumber: number,
-  minWords: number,
-  maxWords: number,
-  previousPrompts: string[]
+  apiKey: string, provider: string, theme: string, outputType: string,
+  styleMode: string | null, mood: string | null, negativePrompt: string | null,
+  model: string, batchNumber: number, batchSize: number, startNumber: number,
+  minWords: number, maxWords: number, previousPrompts: string[]
 ): Promise<BatchResult> {
-  const systemPrompt = buildPromptSystem(
-    theme,
-    outputType,
-    styleMode,
-    mood,
-    negativePrompt,
-    batchNumber,
-    batchSize,
-    startNumber,
-    minWords,
-    maxWords,
-    previousPrompts
-  );
+  const systemPrompt = buildPromptSystem(theme, outputType, styleMode, mood, negativePrompt, batchNumber, batchSize, startNumber, minWords, maxWords, previousPrompts);
+  const userMessage = `Generate ${batchSize} ${getOutputTypeLabel(outputType)} prompts with theme: ${sanitizeTheme(theme)}`;
 
-  const endpoint = PROVIDER_ENDPOINTS[provider as keyof typeof PROVIDER_ENDPOINTS];
-  
-  const headers: Record<string, string> = {
-    "Authorization": `Bearer ${apiKey}`,
-    "Content-Type": "application/json",
-  };
-  
-  if (provider === 'openrouter') {
-    headers["HTTP-Referer"] = "https://promptgen.lovable.app";
-    headers["X-Title"] = "PromptGen";
-  }
+  let content: string;
+  let tokensUsed: number;
 
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({
-      model: model || (provider === 'groq' ? "llama-3.3-70b-versatile" : "xiaomi/mimo-v2-flash:free"),
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: `Generate ${batchSize} ${getOutputTypeLabel(outputType)} prompts with theme: ${sanitizeTheme(theme)}` },
-      ],
-      temperature: 0.9,
-      max_tokens: 3000,
-    }),
-  });
+  if (provider === 'gemini') {
+    // Gemini API - different format
+    const geminiModel = model || 'gemini-2.5-flash';
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${apiKey}`;
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error(`${provider} API error:`, response.status, errorText);
-    
-    if (response.status === 429) {
-      throw new Error("RATE_LIMIT");
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ role: "user", parts: [{ text: userMessage }] }],
+        systemInstruction: { parts: [{ text: systemPrompt }] },
+        generationConfig: { temperature: 0.9, maxOutputTokens: 3000 },
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`Gemini API error:`, response.status, errorText);
+      if (response.status === 429) throw new Error("RATE_LIMIT");
+      if (response.status === 401 || response.status === 403) throw new Error("INVALID_KEY");
+      throw new Error(`API request failed: ${response.status}`);
     }
-    if (response.status === 401 || response.status === 403) {
-      throw new Error("INVALID_KEY");
+
+    const data = await response.json();
+    content = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    tokensUsed = data.usageMetadata?.totalTokenCount || 0;
+  } else {
+    // OpenAI-compatible format (Groq, OpenRouter)
+    const endpoint = PROVIDER_ENDPOINTS[provider as keyof typeof PROVIDER_ENDPOINTS];
+    const headers: Record<string, string> = {
+      "Authorization": `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    };
+    if (provider === 'openrouter') {
+      headers["HTTP-Referer"] = "https://promptgen.lovable.app";
+      headers["X-Title"] = "PromptGen";
     }
-    throw new Error(`API request failed: ${response.status}`);
+
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        model: model || (provider === 'groq' ? "llama-3.3-70b-versatile" : "xiaomi/mimo-v2-flash:free"),
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userMessage },
+        ],
+        temperature: 0.9,
+        max_tokens: 3000,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`${provider} API error:`, response.status, errorText);
+      if (response.status === 429) throw new Error("RATE_LIMIT");
+      if (response.status === 401 || response.status === 403) throw new Error("INVALID_KEY");
+      throw new Error(`API request failed: ${response.status}`);
+    }
+
+    const data = await response.json();
+    content = data.choices?.[0]?.message?.content;
+    tokensUsed = data.usage?.total_tokens || 0;
   }
 
-  const data = await response.json();
-  const content = data.choices?.[0]?.message?.content;
-
-  if (!content) {
-    throw new Error("No response from AI model");
-  }
+  if (!content) throw new Error("No response from AI model");
 
   console.log(`Raw model output (first 500 chars): ${content.slice(0, 500)}`);
-
   const prompts = parseModelOutput(content, batchSize);
   const validPrompts = prompts.filter(p => validatePromptBasic(p, minWords, maxWords));
-
   console.log(`Parsed ${prompts.length} prompts, ${validPrompts.length} valid after filtering`);
 
-  return {
-    prompts: validPrompts,
-    tokensUsed: data.usage?.total_tokens || 0,
-  };
+  return { prompts: validPrompts, tokensUsed };
 }
 
-// Generate ONE batch with key rotation (retries within single batch only)
 async function generateSingleBatchWithRotation(
-  supabase: SupabaseClient,
-  keys: ApiKeyRecord[],
-  encryptionKey: string,
-  provider: string,
-  theme: string,
-  outputType: string,
-  styleMode: string | null,
-  mood: string | null,
-  negativePrompt: string | null,
-  model: string,
-  batchNumber: number,
-  batchSize: number,
-  startNumber: number,
-  minWords: number,
-  maxWords: number,
-  previousPrompts: string[]
+  supabase: SupabaseClient, keys: ApiKeyRecord[], encryptionKey: string, provider: string,
+  theme: string, outputType: string, styleMode: string | null, mood: string | null,
+  negativePrompt: string | null, model: string, batchNumber: number, batchSize: number,
+  startNumber: number, minWords: number, maxWords: number, previousPrompts: string[]
 ): Promise<{ result: BatchResult; usedKeyId: string }> {
   let lastError: Error | null = null;
-  
   const availableKeys = getAvailableKeys(keys, provider);
-  
+
   if (availableKeys.length === 0) {
-    throw new Error(`No active ${provider === 'groq' ? 'Groq' : 'OpenRouter'} API keys available. Please add a key or wait for cooldown.`);
+    const providerName = provider === 'groq' ? 'Groq' : provider === 'openrouter' ? 'OpenRouter' : 'Gemini';
+    throw new Error(`No active ${providerName} API keys available. Please add a key or wait for cooldown.`);
   }
 
   for (const keyRecord of availableKeys) {
     const apiKey = await decryptKeyWithFallback(keyRecord.encrypted_key, encryptionKey);
-    
     for (let retry = 0; retry <= MAX_RETRIES; retry++) {
       try {
         if (retry > 0) {
           console.log(`Retry ${retry} for batch ${batchNumber} with key ${keyRecord.id.slice(0, 8)}`);
           await delay(RETRY_DELAY_MS * (retry + 1));
         }
-        
-        const result = await generateBatch(
-          apiKey,
-          provider,
-          theme,
-          outputType,
-          styleMode,
-          mood,
-          negativePrompt,
-          model, 
-          batchNumber, 
-          batchSize,
-          startNumber,
-          minWords,
-          maxWords,
-          previousPrompts
-        );
-        
+        const result = await generateBatch(apiKey, provider, theme, outputType, styleMode, mood, negativePrompt, model, batchNumber, batchSize, startNumber, minWords, maxWords, previousPrompts);
         if (result.prompts.length === 0) {
           console.warn(`Batch ${batchNumber} returned 0 prompts, retrying...`);
-          if (retry < MAX_RETRIES) {
-            continue;
-          }
+          if (retry < MAX_RETRIES) continue;
           throw new Error("EMPTY_BATCH");
         }
-        
-        // Update key usage
-        await supabase
-          .from("api_keys")
-          .update({ 
-            last_used_at: new Date().toISOString(),
-            cooldown_until: null 
-          } as Record<string, unknown>)
-          .eq("id", keyRecord.id);
-        
+        await supabase.from("api_keys").update({ last_used_at: new Date().toISOString(), cooldown_until: null } as Record<string, unknown>).eq("id", keyRecord.id);
         return { result, usedKeyId: keyRecord.id };
       } catch (error) {
         lastError = error as Error;
         console.error(`Batch ${batchNumber}, key ${keyRecord.id.slice(0, 8)}, retry ${retry}:`, error);
-        
         if ((error as Error).message === "RATE_LIMIT") {
           const cooldownUntil = new Date(Date.now() + COOLDOWN_DURATION_MS).toISOString();
-          
-          await supabase
-            .from("api_keys")
-            .update({ cooldown_until: cooldownUntil } as Record<string, unknown>)
-            .eq("id", keyRecord.id);
-          
+          await supabase.from("api_keys").update({ cooldown_until: cooldownUntil } as Record<string, unknown>).eq("id", keyRecord.id);
           console.log(`Key ${keyRecord.id.slice(0, 8)} set to cooldown until ${cooldownUntil}`);
-          break; // Try next key
+          break;
         }
-        
         if ((error as Error).message === "INVALID_KEY") {
-          await supabase
-            .from("api_keys")
-            .update({ is_active: false } as Record<string, unknown>)
-            .eq("id", keyRecord.id);
-          
+          await supabase.from("api_keys").update({ is_active: false } as Record<string, unknown>).eq("id", keyRecord.id);
           console.log(`Key ${keyRecord.id.slice(0, 8)} marked as inactive (invalid)`);
-          break; // Try next key
+          break;
         }
       }
     }
   }
-  
   throw lastError || new Error("All keys exhausted or in cooldown");
 }
 
-// ============================================================================
-// HTTP HANDLER - Single batch per request
-// ============================================================================
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
-
   try {
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
-      return new Response(
-        JSON.stringify({ error: "Unauthorized" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
-
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
     const encryptionKey = Deno.env.get("GROQ_ENCRYPTION_KEY")!;
-
-    const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-      global: { headers: { Authorization: authHeader } },
-    });
-
+    const supabase = createClient(supabaseUrl, supabaseAnonKey, { global: { headers: { Authorization: authHeader } } });
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     if (authError || !user) {
-      return new Response(
-        JSON.stringify({ error: "Unauthorized" }),
-        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // Parse request body - NEW SINGLE-BATCH PARAMETERS
-    const { 
-      theme, 
-      provider = 'groq',
-      model, 
-      outputType = 'illustration',
-      styleMode = null,
-      mood = null,
-      negativePrompt = null,
-      // Single-batch specific parameters (sent by frontend for each batch)
-      batchSize = 20,
-      batchNumber = 1,
-      startNumber = 1,
-      previousPrompts = [],
-      minWords = 22, 
-      maxWords = 35 
-    } = await req.json();
+    const { theme, provider = 'groq', model, outputType = 'illustration', styleMode = null, mood = null, negativePrompt = null, batchSize = 20, batchNumber = 1, startNumber = 1, previousPrompts = [], minWords = 22, maxWords = 35 } = await req.json();
 
-    // Validate theme
     if (!theme || typeof theme !== "string") {
-      return new Response(
-        JSON.stringify({ error: "Theme is required" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return new Response(JSON.stringify({ error: "Theme is required" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
-
     if (theme.length > MAX_THEME_LENGTH) {
-      return new Response(
-        JSON.stringify({ error: `Theme must be ${MAX_THEME_LENGTH} characters or less` }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return new Response(JSON.stringify({ error: `Theme must be ${MAX_THEME_LENGTH} characters or less` }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // Validate inputs
     const validProvider = VALID_PROVIDERS.includes(provider) ? provider : 'groq';
     const validOutputType = VALID_OUTPUT_TYPES.includes(outputType) ? outputType : 'illustration';
     const validStyleMode = styleMode && VALID_STYLE_MODES.includes(styleMode) ? styleMode : null;
@@ -673,81 +378,30 @@ serve(async (req) => {
     const validMaxWords = Math.min(Math.max(validMinWords + 5, Number(maxWords) || 35), MAX_WORD_COUNT);
     const validPreviousPrompts = Array.isArray(previousPrompts) ? previousPrompts.slice(-5) : [];
 
-    // Fetch user's API keys
-    const { data: keys, error: keysError } = await supabase
-      .from("api_keys")
-      .select("id, encrypted_key, provider, last_used_at, cooldown_until")
-      .eq("user_id", user.id)
-      .eq("is_active", true);
-
+    const { data: keys, error: keysError } = await supabase.from("api_keys").select("id, encrypted_key, provider, last_used_at, cooldown_until").eq("user_id", user.id).eq("is_active", true);
     if (keysError || !keys || keys.length === 0) {
-      return new Response(
-        JSON.stringify({ error: "No active API keys found. Please add an API key first." }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return new Response(JSON.stringify({ error: "No active API keys found. Please add an API key first." }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     const providerKeys = keys.filter(k => k.provider === validProvider);
     if (providerKeys.length === 0) {
-      return new Response(
-        JSON.stringify({ error: `No active ${validProvider === 'groq' ? 'Groq' : 'OpenRouter'} API keys found.` }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      const providerName = validProvider === 'groq' ? 'Groq' : validProvider === 'openrouter' ? 'OpenRouter' : 'Gemini';
+      return new Response(JSON.stringify({ error: `No active ${providerName} API keys found.` }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     console.log(`[Batch ${validBatchNumber}] Generating ${validBatchSize} ${getOutputTypeLabel(validOutputType)} prompts (start: ${validStartNumber})`);
 
-    // Generate ONE batch
-    const { result, usedKeyId } = await generateSingleBatchWithRotation(
-      supabase,
-      keys as ApiKeyRecord[],
-      encryptionKey,
-      validProvider,
-      theme,
-      validOutputType,
-      validStyleMode,
-      validMood,
-      validNegativePrompt,
-      model,
-      validBatchNumber,
-      validBatchSize,
-      validStartNumber,
-      validMinWords,
-      validMaxWords,
-      validPreviousPrompts
-    );
+    const { result, usedKeyId } = await generateSingleBatchWithRotation(supabase, keys as ApiKeyRecord[], encryptionKey, validProvider, theme, validOutputType, validStyleMode, validMood, validNegativePrompt, model, validBatchNumber, validBatchSize, validStartNumber, validMinWords, validMaxWords, validPreviousPrompts);
 
-    // Log this batch
-    await supabase.from("prompt_logs").insert({
-      user_id: user.id,
-      model: model || (validProvider === 'groq' ? "llama-3.3-70b-versatile" : "xiaomi/mimo-v2-flash:free"),
-      prompt_count: result.prompts.length,
-      tokens_used: result.tokensUsed,
-    } as Record<string, unknown>);
+    const defaultModel = validProvider === 'groq' ? "llama-3.3-70b-versatile" : validProvider === 'openrouter' ? "xiaomi/mimo-v2-flash:free" : "gemini-2.5-flash";
+    await supabase.from("prompt_logs").insert({ user_id: user.id, model: model || defaultModel, prompt_count: result.prompts.length, tokens_used: result.tokensUsed } as Record<string, unknown>);
 
     console.log(`[Batch ${validBatchNumber}] Complete: ${result.prompts.length} prompts, ${result.tokensUsed} tokens, key ${usedKeyId.slice(0, 8)}`);
 
-    // Return single batch result
-    return new Response(
-      JSON.stringify({ 
-        prompts: result.prompts,
-        tokensUsed: result.tokensUsed,
-        batchNumber: validBatchNumber,
-        provider: validProvider,
-        outputType: validOutputType,
-        success: true
-      }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    return new Response(JSON.stringify({ prompts: result.prompts, tokensUsed: result.tokensUsed, batchNumber: validBatchNumber, provider: validProvider, outputType: validOutputType, success: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (error) {
     console.error("Error:", error);
     const errorMessage = (error as Error).message || "An unexpected error occurred";
-    return new Response(
-      JSON.stringify({ 
-        error: errorMessage.includes("API keys") ? errorMessage : "Failed to generate prompts. Please try again.",
-        success: false
-      }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    return new Response(JSON.stringify({ error: errorMessage.includes("API keys") ? errorMessage : "Failed to generate prompts. Please try again.", success: false }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
 });
