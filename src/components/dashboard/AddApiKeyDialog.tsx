@@ -21,49 +21,53 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Plus, Key, Loader2, ExternalLink } from 'lucide-react';
 
 interface AddApiKeyDialogProps {
-  onAdd: (apiKey: string, provider: 'groq' | 'openrouter', label?: string) => Promise<void>;
+  onAdd: (apiKey: string, provider: 'groq' | 'openrouter' | 'gemini', label?: string) => Promise<void>;
   disabled?: boolean;
   keyCount: number;
 }
 
 const PROVIDERS = [
-  { 
-    value: 'groq' as const, 
+  {
+    value: 'groq' as const,
     label: 'Groq',
     placeholder: 'gsk_...',
     prefix: 'gsk_',
     url: 'https://console.groq.com/keys',
     urlLabel: 'console.groq.com',
   },
-  { 
-    value: 'openrouter' as const, 
+  {
+    value: 'openrouter' as const,
     label: 'OpenRouter',
     placeholder: 'sk-or-v1-...',
     prefix: 'sk-or-',
     url: 'https://openrouter.ai/keys',
     urlLabel: 'openrouter.ai/keys',
   },
+  {
+    value: 'gemini' as const,
+    label: 'Gemini',
+    placeholder: 'AIza...',
+    prefix: 'AIza',
+    url: 'https://aistudio.google.com/apikey',
+    urlLabel: 'aistudio.google.com',
+  },
 ];
 
 export function AddApiKeyDialog({ onAdd, disabled, keyCount }: AddApiKeyDialogProps) {
   const [open, setOpen] = useState(false);
-  const [provider, setProvider] = useState<'groq' | 'openrouter'>('groq');
+  const [provider, setProvider] = useState<'groq' | 'openrouter' | 'gemini'>('groq');
   const [apiKey, setApiKey] = useState('');
   const [label, setLabel] = useState('');
   const [loading, setLoading] = useState(false);
 
   const currentProvider = PROVIDERS.find(p => p.value === provider)!;
 
-  // Sanitize API key input - extract key from common copy-paste patterns
   const sanitizeApiKey = (key: string): string => {
     let sanitized = key.trim();
-    
-    // Remove common patterns like: API_KEY = "..." or API_KEY="..." or just quotes
     const patterns = [
-      /^[A-Z_]+\s*=\s*["'](.+?)["']$/i,  // API_KEY = "key" or API_KEY="key"
-      /^["'](.+?)["']$/,                   // "key" or 'key'
+      /^[A-Z_]+\s*=\s*["'](.+?)["']$/i,
+      /^["'](.+?)["']$/,
     ];
-    
     for (const pattern of patterns) {
       const match = sanitized.match(pattern);
       if (match && match[1]) {
@@ -71,7 +75,6 @@ export function AddApiKeyDialog({ onAdd, disabled, keyCount }: AddApiKeyDialogPr
         break;
       }
     }
-    
     return sanitized;
   };
 
@@ -117,10 +120,9 @@ export function AddApiKeyDialog({ onAdd, disabled, keyCount }: AddApiKeyDialogPr
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-4 mt-4">
-          {/* Provider Selection */}
           <div className="space-y-2">
             <Label htmlFor="provider">Provider</Label>
-            <Select value={provider} onValueChange={(v) => setProvider(v as 'groq' | 'openrouter')}>
+            <Select value={provider} onValueChange={(v) => setProvider(v as 'groq' | 'openrouter' | 'gemini')}>
               <SelectTrigger className="h-11 bg-muted/50 border-border">
                 <SelectValue />
               </SelectTrigger>

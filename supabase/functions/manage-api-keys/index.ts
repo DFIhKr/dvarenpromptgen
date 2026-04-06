@@ -7,7 +7,6 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-// Provider-specific validation
 const PROVIDER_CONFIGS = {
   groq: {
     prefix: 'gsk_',
@@ -18,6 +17,12 @@ const PROVIDER_CONFIGS = {
   openrouter: {
     prefix: 'sk-or-',
     name: 'OpenRouter',
+    minLength: 20,
+    maxLength: 200,
+  },
+  gemini: {
+    prefix: 'AIza',
+    name: 'Gemini',
     minLength: 20,
     maxLength: 200,
   },
@@ -55,7 +60,6 @@ serve(async (req) => {
 
     const { action, apiKey, provider = 'groq', label } = await req.json();
 
-    // Validate action parameter
     const validActions = ["add", "get_decrypted", "list", "delete", "toggle"];
     if (!action || typeof action !== "string" || !validActions.includes(action)) {
       return new Response(
@@ -65,18 +69,16 @@ serve(async (req) => {
     }
 
     if (action === "add") {
-      // Validate provider
-      const validProviders = ['groq', 'openrouter'];
+      const validProviders = ['groq', 'openrouter', 'gemini'];
       if (!validProviders.includes(provider)) {
         return new Response(
-          JSON.stringify({ error: "Invalid provider. Must be 'groq' or 'openrouter'" }),
+          JSON.stringify({ error: "Invalid provider. Must be 'groq', 'openrouter', or 'gemini'" }),
           { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
 
       const providerConfig = PROVIDER_CONFIGS[provider as keyof typeof PROVIDER_CONFIGS];
 
-      // Check key count
       const { count } = await supabase
         .from("api_keys")
         .select("*", { count: "exact", head: true })
@@ -89,7 +91,6 @@ serve(async (req) => {
         );
       }
 
-      // Validate the API key format
       if (!apiKey || typeof apiKey !== "string" || !apiKey.startsWith(providerConfig.prefix)) {
         return new Response(
           JSON.stringify({ error: `Invalid API key format. ${providerConfig.name} keys start with '${providerConfig.prefix}'` }),
@@ -97,7 +98,6 @@ serve(async (req) => {
         );
       }
 
-      // Validate API key length
       if (apiKey.length < providerConfig.minLength || apiKey.length > providerConfig.maxLength) {
         return new Response(
           JSON.stringify({ error: "Invalid API key length" }),
@@ -105,12 +105,10 @@ serve(async (req) => {
         );
       }
 
-      // Validate label if provided
-      const sanitizedLabel = label 
-        ? String(label).slice(0, 50).replace(/[<>&"']/g, '') 
+      const sanitizedLabel = label
+        ? String(label).slice(0, 50).replace(/[<>&"']/g, '')
         : null;
 
-      // Encrypt with AES-256-GCM
       const encryptedKey = await encryptKey(apiKey, encryptionKey);
       const keyHint = maskKey(apiKey);
 
@@ -140,7 +138,6 @@ serve(async (req) => {
     }
 
     if (action === "get_decrypted") {
-      // Only for internal use by other edge functions
       const { data: keys, error } = await supabase
         .from("api_keys")
         .select("id, encrypted_key, provider, is_active")
