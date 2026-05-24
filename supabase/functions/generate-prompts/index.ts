@@ -58,6 +58,7 @@ interface ApiKeyRecord {
   provider: string;
   last_used_at: string | null;
   cooldown_until: string | null;
+  custom_endpoint: string | null;
 }
 
 interface BatchResult {
