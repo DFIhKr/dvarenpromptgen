@@ -190,6 +190,24 @@ export function AddApiKeyDialog({ onAdd, disabled, keyCount }: AddApiKeyDialogPr
             />
           </div>
 
+          {provider === '9router' && (
+            <div className="space-y-2">
+              <Label htmlFor="customEndpoint">9Router Endpoint URL *</Label>
+              <Input
+                id="customEndpoint"
+                type="url"
+                placeholder="https://your-tunnel.9router.com/v1"
+                value={customEndpoint}
+                onChange={(e) => setCustomEndpoint(e.target.value)}
+                required
+                className="h-11 bg-muted/50 border-border font-mono text-sm"
+              />
+              <p className="text-xs text-muted-foreground">
+                Your personal 9Router base URL. This will be used for API calls.
+              </p>
+            </div>
+          )}
+
           <div className="space-y-2">
             <Label htmlFor="label">Label (optional)</Label>
             <Input
