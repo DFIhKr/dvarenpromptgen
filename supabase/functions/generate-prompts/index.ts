@@ -389,7 +389,7 @@ async function generateSingleBatchWithRotation(
           console.log(`Retry ${retry} for batch ${batchNumber} with key ${keyRecord.id.slice(0, 8)}`);
           await delay(RETRY_DELAY_MS * (retry + 1));
         }
-        const result = await generateBatch(apiKey, provider, theme, outputType, styleMode, mood, negativePrompt, model, batchNumber, batchSize, startNumber, minWords, maxWords, previousPrompts);
+        const result = await generateBatch(apiKey, provider, theme, outputType, styleMode, mood, negativePrompt, model, batchNumber, batchSize, startNumber, minWords, maxWords, previousPrompts, keyRecord.custom_endpoint);
         if (result.prompts.length === 0) {
           console.warn(`Batch ${batchNumber} returned 0 prompts, retrying...`);
           if (retry < MAX_RETRIES) continue;
