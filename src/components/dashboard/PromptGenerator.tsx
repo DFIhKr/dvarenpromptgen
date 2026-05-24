@@ -24,9 +24,11 @@ import { Progress } from '@/components/ui/progress';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { SourceOwnerToggle } from '@/components/dashboard/SourceOwnerToggle';
 
+type ProviderType = 'groq' | 'openrouter' | 'gemini' | 'nvidia' | '9router';
+
 interface ApiKey {
   id: string;
-  provider: 'groq' | 'openrouter' | 'gemini';
+  provider: ProviderType;
   is_active: boolean;
 }
 
