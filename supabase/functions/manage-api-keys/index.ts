@@ -121,6 +121,24 @@ serve(async (req) => {
         ? String(label).slice(0, 50).replace(/[<>&"']/g, '')
         : null;
 
+      let sanitizedEndpoint: string | null = null;
+      if (provider === '9router') {
+        if (!customEndpoint || typeof customEndpoint !== 'string' || !customEndpoint.trim()) {
+          return new Response(
+            JSON.stringify({ error: "9Router endpoint URL is required" }),
+            { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+        const trimmed = customEndpoint.trim();
+        if (!/^https?:\/\//i.test(trimmed) || trimmed.length > 500) {
+          return new Response(
+            JSON.stringify({ error: "Invalid endpoint URL" }),
+            { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+        sanitizedEndpoint = trimmed.replace(/\/+$/, '');
+      }
+
       const encryptedKey = await encryptKey(apiKey, encryptionKey);
       const keyHint = maskKey(apiKey);
 
@@ -132,6 +150,7 @@ serve(async (req) => {
           key_hint: keyHint,
           label: sanitizedLabel,
           provider: provider,
+          custom_endpoint: sanitizedEndpoint,
           is_active: true,
         });
 
