@@ -336,9 +336,9 @@ export function PromptGenerator({ hasActiveKeys, apiKeys }: PromptGeneratorProps
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="provider">Provider</Label>
-              <Select value={provider} onValueChange={(v) => handleProviderChange(v as 'groq' | 'openrouter' | 'gemini')} disabled={!hasActiveKeys || loading}>
+              <Select value={provider} onValueChange={(v) => handleProviderChange(v as ProviderType)} disabled={!hasActiveKeys || loading}>
                 <SelectTrigger className="h-11 bg-muted/50 border-border"><SelectValue /></SelectTrigger>
-                <SelectContent>{PROVIDERS.map((p) => (<SelectItem key={p.value} value={p.value}><div className="flex items-center gap-2">{p.label}{p.value === 'groq' && !hasGroqKeys && (<span className="text-xs text-muted-foreground">(no keys)</span>)}{p.value === 'openrouter' && !hasOpenRouterKeys && (<span className="text-xs text-muted-foreground">(no keys)</span>)}{p.value === 'gemini' && !hasGeminiKeys && (<span className="text-xs text-muted-foreground">(no keys)</span>)}</div></SelectItem>))}</SelectContent>
+                <SelectContent>{PROVIDERS.map((p) => (<SelectItem key={p.value} value={p.value}><div className="flex items-center gap-2">{p.label}{!providerKeyMap[p.value] && (<span className="text-xs text-muted-foreground">(no keys)</span>)}</div></SelectItem>))}</SelectContent>
               </Select>
             </div>
             <div className="space-y-2">
