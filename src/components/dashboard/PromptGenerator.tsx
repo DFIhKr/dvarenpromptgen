@@ -24,9 +24,11 @@ import { Progress } from '@/components/ui/progress';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { SourceOwnerToggle } from '@/components/dashboard/SourceOwnerToggle';
 
+type ProviderType = 'groq' | 'openrouter' | 'gemini' | 'nvidia' | '9router';
+
 interface ApiKey {
   id: string;
-  provider: 'groq' | 'openrouter' | 'gemini';
+  provider: ProviderType;
   is_active: boolean;
 }
 
@@ -53,6 +55,30 @@ const GEMINI_MODELS = [
   { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
   { value: 'gemini-3.0-flash', label: 'Gemini 3.0 Flash' },
 ];
+
+const NVIDIA_MODELS = [
+  { value: 'minimaxai/minimax-m2.7', label: 'MiniMax M2.7' },
+];
+
+const NINE_ROUTER_MODELS = [
+  { value: 'ag/gemini-3.1-pro-high', label: 'Gemini 3.1 Pro High (Antigravity)' },
+  { value: 'ag/gemini-3-flash', label: 'Gemini 3 Flash (Antigravity)' },
+  { value: 'ag/claude-sonnet-4-6', label: 'Claude Sonnet 4.6 (Antigravity)' },
+  { value: 'ag/gpt-oss-120b-medium', label: 'GPT OSS 120B Medium (Antigravity)' },
+  { value: 'kr/claude-opus-4.6', label: 'Claude Opus 4.6 (Kiro)' },
+  { value: 'kr/claude-sonnet-4.6', label: 'Claude Sonnet 4.6 (Kiro)' },
+  { value: 'kr/glm-5', label: 'GLM 5 (Kiro)' },
+];
+
+function getModelsForProvider(p: ProviderType) {
+  switch (p) {
+    case 'groq': return GROQ_MODELS;
+    case 'openrouter': return OPENROUTER_MODELS;
+    case 'gemini': return GEMINI_MODELS;
+    case 'nvidia': return NVIDIA_MODELS;
+    case '9router': return NINE_ROUTER_MODELS;
+  }
+}
 
 const OUTPUT_TYPES = [
   { value: 'photo', label: 'Photo' },
@@ -87,10 +113,12 @@ const MOODS = [
   { value: 'uplifting', label: 'Uplifting' },
 ];
 
-const PROVIDERS = [
+const PROVIDERS: { value: ProviderType; label: string }[] = [
   { value: 'groq', label: 'Groq' },
   { value: 'openrouter', label: 'OpenRouter' },
   { value: 'gemini', label: 'Gemini' },
+  { value: 'nvidia', label: 'NVIDIA NIM' },
+  { value: '9router', label: '9Router' },
 ];
 
 const BATCH_SIZE = 20;
@@ -98,7 +126,7 @@ const BATCH_DELAY_MS = 1500;
 
 export function PromptGenerator({ hasActiveKeys, apiKeys }: PromptGeneratorProps) {
   const [theme, setTheme] = useState('');
-  const [provider, setProvider] = useState<'groq' | 'openrouter' | 'gemini'>('groq');
+  const [provider, setProvider] = useState<ProviderType>('groq');
   const [model, setModel] = useState(GROQ_MODELS[0].value);
   const [outputType, setOutputType] = useState(OUTPUT_TYPES[0].value);
   const [styleMode, setStyleMode] = useState('none');
@@ -117,16 +145,20 @@ export function PromptGenerator({ hasActiveKeys, apiKeys }: PromptGeneratorProps
   const { toast } = useToast();
   const shouldStopRef = useRef(false);
 
-  const hasGroqKeys = apiKeys.some(k => k.provider === 'groq' && k.is_active);
-  const hasOpenRouterKeys = apiKeys.some(k => k.provider === 'openrouter' && k.is_active);
-  const hasGeminiKeys = apiKeys.some(k => k.provider === 'gemini' && k.is_active);
-  const hasActiveProviderKeys = useSourceOwner ? true : (provider === 'groq' ? hasGroqKeys : provider === 'openrouter' ? hasOpenRouterKeys : hasGeminiKeys);
-  const currentModels = provider === 'groq' ? GROQ_MODELS : provider === 'openrouter' ? OPENROUTER_MODELS : GEMINI_MODELS;
+  const providerKeyMap: Record<ProviderType, boolean> = {
+    groq: apiKeys.some(k => k.provider === 'groq' && k.is_active),
+    openrouter: apiKeys.some(k => k.provider === 'openrouter' && k.is_active),
+    gemini: apiKeys.some(k => k.provider === 'gemini' && k.is_active),
+    nvidia: apiKeys.some(k => k.provider === 'nvidia' && k.is_active),
+    '9router': apiKeys.some(k => k.provider === '9router' && k.is_active),
+  };
+  const hasActiveProviderKeys = useSourceOwner ? true : providerKeyMap[provider];
+  const currentModels = getModelsForProvider(provider);
   const activeProviderKeyCount = useSourceOwner ? 1 : apiKeys.filter(k => k.provider === provider && k.is_active).length;
 
-  const handleProviderChange = (newProvider: 'groq' | 'openrouter' | 'gemini') => {
+  const handleProviderChange = (newProvider: ProviderType) => {
     setProvider(newProvider);
-    const models = newProvider === 'groq' ? GROQ_MODELS : newProvider === 'openrouter' ? OPENROUTER_MODELS : GEMINI_MODELS;
+    const models = getModelsForProvider(newProvider);
     setModel(models[0].value);
   };
 
@@ -304,9 +336,9 @@ export function PromptGenerator({ hasActiveKeys, apiKeys }: PromptGeneratorProps
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="provider">Provider</Label>
-              <Select value={provider} onValueChange={(v) => handleProviderChange(v as 'groq' | 'openrouter' | 'gemini')} disabled={!hasActiveKeys || loading}>
+              <Select value={provider} onValueChange={(v) => handleProviderChange(v as ProviderType)} disabled={!hasActiveKeys || loading}>
                 <SelectTrigger className="h-11 bg-muted/50 border-border"><SelectValue /></SelectTrigger>
-                <SelectContent>{PROVIDERS.map((p) => (<SelectItem key={p.value} value={p.value}><div className="flex items-center gap-2">{p.label}{p.value === 'groq' && !hasGroqKeys && (<span className="text-xs text-muted-foreground">(no keys)</span>)}{p.value === 'openrouter' && !hasOpenRouterKeys && (<span className="text-xs text-muted-foreground">(no keys)</span>)}{p.value === 'gemini' && !hasGeminiKeys && (<span className="text-xs text-muted-foreground">(no keys)</span>)}</div></SelectItem>))}</SelectContent>
+                <SelectContent>{PROVIDERS.map((p) => (<SelectItem key={p.value} value={p.value}><div className="flex items-center gap-2">{p.label}{!providerKeyMap[p.value] && (<span className="text-xs text-muted-foreground">(no keys)</span>)}</div></SelectItem>))}</SelectContent>
               </Select>
             </div>
             <div className="space-y-2">

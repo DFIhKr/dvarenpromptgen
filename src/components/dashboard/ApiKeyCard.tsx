@@ -6,7 +6,7 @@ interface ApiKeyCardProps {
   id: string;
   keyHint: string;
   label: string | null;
-  provider: 'groq' | 'openrouter' | 'gemini';
+  provider: 'groq' | 'openrouter' | 'gemini' | 'nvidia' | '9router';
   isActive: boolean;
   createdAt: string;
   onToggle: (id: string, isActive: boolean) => void;
@@ -17,6 +17,8 @@ const PROVIDER_LABELS: Record<string, { label: string; className: string }> = {
   groq: { label: 'Groq', className: 'bg-orange-500/20 text-orange-400' },
   openrouter: { label: 'OpenRouter', className: 'bg-violet-500/20 text-violet-400' },
   gemini: { label: 'Gemini', className: 'bg-blue-500/20 text-blue-400' },
+  nvidia: { label: 'NVIDIA NIM', className: 'bg-green-500/20 text-green-400' },
+  '9router': { label: '9Router', className: 'bg-cyan-500/20 text-cyan-400' },
 };
 
 export function ApiKeyCard({

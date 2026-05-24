@@ -26,6 +26,18 @@ const PROVIDER_CONFIGS = {
     minLength: 20,
     maxLength: 200,
   },
+  nvidia: {
+    prefix: 'nvapi-',
+    name: 'NVIDIA NIM',
+    minLength: 20,
+    maxLength: 300,
+  },
+  '9router': {
+    prefix: 'sk-',
+    name: '9Router',
+    minLength: 20,
+    maxLength: 300,
+  },
 };
 
 serve(async (req) => {
@@ -69,10 +81,10 @@ serve(async (req) => {
     }
 
     if (action === "add") {
-      const validProviders = ['groq', 'openrouter', 'gemini'];
+      const validProviders = ['groq', 'openrouter', 'gemini', 'nvidia', '9router'];
       if (!validProviders.includes(provider)) {
         return new Response(
-          JSON.stringify({ error: "Invalid provider. Must be 'groq', 'openrouter', or 'gemini'" }),
+          JSON.stringify({ error: "Invalid provider" }),
           { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }

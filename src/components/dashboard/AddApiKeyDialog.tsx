@@ -20,8 +20,10 @@ import {
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Plus, Key, Loader2, ExternalLink } from 'lucide-react';
 
+type ProviderValue = 'groq' | 'openrouter' | 'gemini' | 'nvidia' | '9router';
+
 interface AddApiKeyDialogProps {
-  onAdd: (apiKey: string, provider: 'groq' | 'openrouter' | 'gemini', label?: string) => Promise<void>;
+  onAdd: (apiKey: string, provider: ProviderValue, label?: string) => Promise<void>;
   disabled?: boolean;
   keyCount: number;
 }
@@ -51,11 +53,27 @@ const PROVIDERS = [
     url: 'https://aistudio.google.com/apikey',
     urlLabel: 'aistudio.google.com',
   },
+  {
+    value: 'nvidia' as const,
+    label: 'NVIDIA NIM',
+    placeholder: 'nvapi-...',
+    prefix: 'nvapi-',
+    url: 'https://build.nvidia.com/',
+    urlLabel: 'build.nvidia.com',
+  },
+  {
+    value: '9router' as const,
+    label: '9Router',
+    placeholder: 'sk-...',
+    prefix: 'sk-',
+    url: 'https://router.dvaren.online/',
+    urlLabel: 'router.dvaren.online',
+  },
 ];
 
 export function AddApiKeyDialog({ onAdd, disabled, keyCount }: AddApiKeyDialogProps) {
   const [open, setOpen] = useState(false);
-  const [provider, setProvider] = useState<'groq' | 'openrouter' | 'gemini'>('groq');
+  const [provider, setProvider] = useState<ProviderValue>('groq');
   const [apiKey, setApiKey] = useState('');
   const [label, setLabel] = useState('');
   const [loading, setLoading] = useState(false);
@@ -122,7 +140,7 @@ export function AddApiKeyDialog({ onAdd, disabled, keyCount }: AddApiKeyDialogPr
         <form onSubmit={handleSubmit} className="space-y-4 mt-4">
           <div className="space-y-2">
             <Label htmlFor="provider">Provider</Label>
-            <Select value={provider} onValueChange={(v) => setProvider(v as 'groq' | 'openrouter' | 'gemini')}>
+            <Select value={provider} onValueChange={(v) => setProvider(v as ProviderValue)}>
               <SelectTrigger className="h-11 bg-muted/50 border-border">
                 <SelectValue />
               </SelectTrigger>

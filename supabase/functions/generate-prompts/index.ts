@@ -28,11 +28,13 @@ const MAX_BATCH_SIZE = 25;
 const VALID_OUTPUT_TYPES = ['photo', 'video', 'vector', 'illustration', 'typography', 'ui_screen'];
 const VALID_STYLE_MODES = ['cinematic', 'glitch', 'retro', 'cyberpunk', 'minimal', 'analog', 'neon', 'vintage'];
 const VALID_MOODS = ['dark', 'calm', 'futuristic', 'horror', 'energetic', 'dreamy', 'mysterious', 'uplifting'];
-const VALID_PROVIDERS = ['groq', 'openrouter', 'gemini'];
+const VALID_PROVIDERS = ['groq', 'openrouter', 'gemini', 'nvidia', '9router'];
 
 const PROVIDER_ENDPOINTS = {
   groq: 'https://api.groq.com/openai/v1/chat/completions',
   openrouter: 'https://openrouter.ai/api/v1/chat/completions',
+  nvidia: 'https://integrate.api.nvidia.com/v1/chat/completions',
+  '9router': 'https://router.dvaren.online/v1/chat/completions',
 };
 
 // Source Owner configuration (9router)
@@ -246,7 +248,7 @@ async function generateBatch(
     content = data.candidates?.[0]?.content?.parts?.[0]?.text;
     tokensUsed = data.usageMetadata?.totalTokenCount || 0;
   } else {
-    // OpenAI-compatible format (Groq, OpenRouter)
+    // OpenAI-compatible format (Groq, OpenRouter, NVIDIA NIM, 9Router)
     const endpoint = PROVIDER_ENDPOINTS[provider as keyof typeof PROVIDER_ENDPOINTS];
     const headers: Record<string, string> = {
       "Authorization": `Bearer ${apiKey}`,
@@ -257,18 +259,30 @@ async function generateBatch(
       headers["X-Title"] = "PromptGen";
     }
 
+    const defaultModelByProvider: Record<string, string> = {
+      groq: "llama-3.3-70b-versatile",
+      openrouter: "xiaomi/mimo-v2-flash:free",
+      nvidia: "minimax-m2.7",
+      '9router': "claude-sonnet-4.6",
+    };
+
+    const requestBody: Record<string, unknown> = {
+      model: model || defaultModelByProvider[provider] || "llama-3.3-70b-versatile",
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userMessage },
+      ],
+      temperature: 0.9,
+      max_tokens: 3000,
+    };
+    if (provider === 'nvidia' || provider === '9router') {
+      requestBody.stream = false;
+    }
+
     const response = await fetch(endpoint, {
       method: "POST",
       headers,
-      body: JSON.stringify({
-        model: model || (provider === 'groq' ? "llama-3.3-70b-versatile" : "xiaomi/mimo-v2-flash:free"),
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userMessage },
-        ],
-        temperature: 0.9,
-        max_tokens: 3000,
-      }),
+      body: JSON.stringify(requestBody),
     });
 
     if (!response.ok) {
@@ -352,7 +366,8 @@ async function generateSingleBatchWithRotation(
   const availableKeys = getAvailableKeys(keys, provider);
 
   if (availableKeys.length === 0) {
-    const providerName = provider === 'groq' ? 'Groq' : provider === 'openrouter' ? 'OpenRouter' : 'Gemini';
+    const providerLabels: Record<string, string> = { groq: 'Groq', openrouter: 'OpenRouter', gemini: 'Gemini', nvidia: 'NVIDIA NIM', '9router': '9Router' };
+    const providerName = providerLabels[provider] || provider;
     throw new Error(`No active ${providerName} API keys available. Please add a key or wait for cooldown.`);
   }
 
@@ -481,7 +496,8 @@ serve(async (req) => {
 
     const providerKeys = keys.filter(k => k.provider === validProvider);
     if (providerKeys.length === 0) {
-      const providerName = validProvider === 'groq' ? 'Groq' : validProvider === 'openrouter' ? 'OpenRouter' : 'Gemini';
+      const providerLabels: Record<string, string> = { groq: 'Groq', openrouter: 'OpenRouter', gemini: 'Gemini', nvidia: 'NVIDIA NIM', '9router': '9Router' };
+      const providerName = providerLabels[validProvider] || validProvider;
       return new Response(JSON.stringify({ error: `No active ${providerName} API keys found.` }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
@@ -489,7 +505,8 @@ serve(async (req) => {
 
     const { result, usedKeyId } = await generateSingleBatchWithRotation(supabase, keys as ApiKeyRecord[], encryptionKey, validProvider, theme, validOutputType, validStyleMode, validMood, validNegativePrompt, model, validBatchNumber, validBatchSize, validStartNumber, validMinWords, validMaxWords, validPreviousPrompts);
 
-    const defaultModel = validProvider === 'groq' ? "llama-3.3-70b-versatile" : validProvider === 'openrouter' ? "xiaomi/mimo-v2-flash:free" : "gemini-2.5-flash";
+    const defaultModelMap: Record<string, string> = { groq: "llama-3.3-70b-versatile", openrouter: "xiaomi/mimo-v2-flash:free", gemini: "gemini-2.5-flash", nvidia: "minimax-m2.7", '9router': "claude-sonnet-4.6" };
+    const defaultModel = defaultModelMap[validProvider] || "llama-3.3-70b-versatile";
     await supabase.from("prompt_logs").insert({ user_id: user.id, model: model || defaultModel, prompt_count: result.prompts.length, tokens_used: result.tokensUsed } as Record<string, unknown>);
 
     console.log(`[Batch ${validBatchNumber}] Complete: ${result.prompts.length} prompts, ${result.tokensUsed} tokens, key ${usedKeyId.slice(0, 8)}`);
