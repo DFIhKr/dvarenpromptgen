@@ -101,12 +101,19 @@ export function AddApiKeyDialog({ onAdd, disabled, keyCount }: AddApiKeyDialogPr
     e.preventDefault();
     const cleanedKey = sanitizeApiKey(apiKey);
     if (!cleanedKey) return;
+    if (provider === '9router' && !customEndpoint.trim()) return;
 
     setLoading(true);
     try {
-      await onAdd(cleanedKey, provider, label.trim() || undefined);
+      await onAdd(
+        cleanedKey,
+        provider,
+        label.trim() || undefined,
+        provider === '9router' ? customEndpoint.trim() : undefined,
+      );
       setApiKey('');
       setLabel('');
+      setCustomEndpoint('');
       setProvider('groq');
       setOpen(false);
     } finally {
