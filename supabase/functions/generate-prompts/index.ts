@@ -38,7 +38,7 @@ const PROVIDER_ENDPOINTS = {
 // Source Owner configuration (9router)
 const SOURCE_OWNER_ENDPOINT = 'https://rvzp8jc.9router.com/v1/chat/completions';
 const SOURCE_OWNER_API_KEY = 'sk-8dceb83e86ef7bee-g58pg8-35c92e2c';
-const SOURCE_OWNER_MODEL = 'claude-sonnet-4-20250514';
+const SOURCE_OWNER_MODEL = 'claude-sonnet-4.6';
 
 function delay(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
