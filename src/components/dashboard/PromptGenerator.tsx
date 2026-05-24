@@ -126,7 +126,7 @@ const BATCH_DELAY_MS = 1500;
 
 export function PromptGenerator({ hasActiveKeys, apiKeys }: PromptGeneratorProps) {
   const [theme, setTheme] = useState('');
-  const [provider, setProvider] = useState<'groq' | 'openrouter' | 'gemini'>('groq');
+  const [provider, setProvider] = useState<ProviderType>('groq');
   const [model, setModel] = useState(GROQ_MODELS[0].value);
   const [outputType, setOutputType] = useState(OUTPUT_TYPES[0].value);
   const [styleMode, setStyleMode] = useState('none');
@@ -145,16 +145,20 @@ export function PromptGenerator({ hasActiveKeys, apiKeys }: PromptGeneratorProps
   const { toast } = useToast();
   const shouldStopRef = useRef(false);
 
-  const hasGroqKeys = apiKeys.some(k => k.provider === 'groq' && k.is_active);
-  const hasOpenRouterKeys = apiKeys.some(k => k.provider === 'openrouter' && k.is_active);
-  const hasGeminiKeys = apiKeys.some(k => k.provider === 'gemini' && k.is_active);
-  const hasActiveProviderKeys = useSourceOwner ? true : (provider === 'groq' ? hasGroqKeys : provider === 'openrouter' ? hasOpenRouterKeys : hasGeminiKeys);
-  const currentModels = provider === 'groq' ? GROQ_MODELS : provider === 'openrouter' ? OPENROUTER_MODELS : GEMINI_MODELS;
+  const providerKeyMap: Record<ProviderType, boolean> = {
+    groq: apiKeys.some(k => k.provider === 'groq' && k.is_active),
+    openrouter: apiKeys.some(k => k.provider === 'openrouter' && k.is_active),
+    gemini: apiKeys.some(k => k.provider === 'gemini' && k.is_active),
+    nvidia: apiKeys.some(k => k.provider === 'nvidia' && k.is_active),
+    '9router': apiKeys.some(k => k.provider === '9router' && k.is_active),
+  };
+  const hasActiveProviderKeys = useSourceOwner ? true : providerKeyMap[provider];
+  const currentModels = getModelsForProvider(provider);
   const activeProviderKeyCount = useSourceOwner ? 1 : apiKeys.filter(k => k.provider === provider && k.is_active).length;
 
-  const handleProviderChange = (newProvider: 'groq' | 'openrouter' | 'gemini') => {
+  const handleProviderChange = (newProvider: ProviderType) => {
     setProvider(newProvider);
-    const models = newProvider === 'groq' ? GROQ_MODELS : newProvider === 'openrouter' ? OPENROUTER_MODELS : GEMINI_MODELS;
+    const models = getModelsForProvider(newProvider);
     setModel(models[0].value);
   };
 
