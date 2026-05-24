@@ -317,6 +317,7 @@ async function generateBatchSourceOwner(
       ],
       temperature: 0.9,
       max_tokens: 3000,
+      stream: false,
     }),
   });
 
