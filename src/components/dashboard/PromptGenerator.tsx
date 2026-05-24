@@ -56,6 +56,30 @@ const GEMINI_MODELS = [
   { value: 'gemini-3.0-flash', label: 'Gemini 3.0 Flash' },
 ];
 
+const NVIDIA_MODELS = [
+  { value: 'minimaxai/minimax-m2.7', label: 'MiniMax M2.7' },
+];
+
+const NINE_ROUTER_MODELS = [
+  { value: 'ag/gemini-3.1-pro-high', label: 'Gemini 3.1 Pro High (Antigravity)' },
+  { value: 'ag/gemini-3-flash', label: 'Gemini 3 Flash (Antigravity)' },
+  { value: 'ag/claude-sonnet-4-6', label: 'Claude Sonnet 4.6 (Antigravity)' },
+  { value: 'ag/gpt-oss-120b-medium', label: 'GPT OSS 120B Medium (Antigravity)' },
+  { value: 'kr/claude-opus-4.6', label: 'Claude Opus 4.6 (Kiro)' },
+  { value: 'kr/claude-sonnet-4.6', label: 'Claude Sonnet 4.6 (Kiro)' },
+  { value: 'kr/glm-5', label: 'GLM 5 (Kiro)' },
+];
+
+function getModelsForProvider(p: ProviderType) {
+  switch (p) {
+    case 'groq': return GROQ_MODELS;
+    case 'openrouter': return OPENROUTER_MODELS;
+    case 'gemini': return GEMINI_MODELS;
+    case 'nvidia': return NVIDIA_MODELS;
+    case '9router': return NINE_ROUTER_MODELS;
+  }
+}
+
 const OUTPUT_TYPES = [
   { value: 'photo', label: 'Photo' },
   { value: 'video', label: 'Video' },
@@ -89,10 +113,12 @@ const MOODS = [
   { value: 'uplifting', label: 'Uplifting' },
 ];
 
-const PROVIDERS = [
+const PROVIDERS: { value: ProviderType; label: string }[] = [
   { value: 'groq', label: 'Groq' },
   { value: 'openrouter', label: 'OpenRouter' },
   { value: 'gemini', label: 'Gemini' },
+  { value: 'nvidia', label: 'NVIDIA NIM' },
+  { value: '9router', label: '9Router' },
 ];
 
 const BATCH_SIZE = 20;
