@@ -81,10 +81,10 @@ serve(async (req) => {
     }
 
     if (action === "add") {
-      const validProviders = ['groq', 'openrouter', 'gemini'];
+      const validProviders = ['groq', 'openrouter', 'gemini', 'nvidia', '9router'];
       if (!validProviders.includes(provider)) {
         return new Response(
-          JSON.stringify({ error: "Invalid provider. Must be 'groq', 'openrouter', or 'gemini'" }),
+          JSON.stringify({ error: "Invalid provider" }),
           { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
