@@ -50,19 +50,19 @@ export default function Dashboard() {
     fetchApiKeys();
   }, []);
 
-  const handleAddKey = async (apiKey: string, provider: 'groq' | 'openrouter' | 'gemini' | 'nvidia' | '9router', label?: string) => {
+  const handleAddKey = async (apiKey: string, provider: 'groq' | 'openrouter' | 'gemini' | 'nvidia' | '9router', label?: string, customEndpoint?: string) => {
     try {
       const { data, error } = await supabase.functions.invoke('manage-api-keys', {
-        body: { action: 'add', apiKey, provider, label },
+        body: { action: 'add', apiKey, provider, label, customEndpoint },
       });
 
       if (error) throw error;
       if (data.error) throw new Error(data.error);
 
-      const providerName = provider === 'groq' ? 'Groq' : provider === 'openrouter' ? 'OpenRouter' : 'Gemini';
+      const providerNames: Record<string, string> = { groq: 'Groq', openrouter: 'OpenRouter', gemini: 'Gemini', nvidia: 'NVIDIA NIM', '9router': '9Router' };
       toast({
         title: 'API key added',
-        description: `Your ${providerName} API key has been securely stored.`,
+        description: `Your ${providerNames[provider] || provider} API key has been securely stored.`,
       });
       fetchApiKeys();
     } catch (error) {
