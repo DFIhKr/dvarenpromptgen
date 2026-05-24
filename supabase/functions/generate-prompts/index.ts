@@ -496,7 +496,8 @@ serve(async (req) => {
 
     const providerKeys = keys.filter(k => k.provider === validProvider);
     if (providerKeys.length === 0) {
-      const providerName = validProvider === 'groq' ? 'Groq' : validProvider === 'openrouter' ? 'OpenRouter' : 'Gemini';
+      const providerLabels: Record<string, string> = { groq: 'Groq', openrouter: 'OpenRouter', gemini: 'Gemini', nvidia: 'NVIDIA NIM', '9router': '9Router' };
+      const providerName = providerLabels[validProvider] || validProvider;
       return new Response(JSON.stringify({ error: `No active ${providerName} API keys found.` }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
