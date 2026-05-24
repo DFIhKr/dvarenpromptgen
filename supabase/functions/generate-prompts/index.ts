@@ -28,11 +28,13 @@ const MAX_BATCH_SIZE = 25;
 const VALID_OUTPUT_TYPES = ['photo', 'video', 'vector', 'illustration', 'typography', 'ui_screen'];
 const VALID_STYLE_MODES = ['cinematic', 'glitch', 'retro', 'cyberpunk', 'minimal', 'analog', 'neon', 'vintage'];
 const VALID_MOODS = ['dark', 'calm', 'futuristic', 'horror', 'energetic', 'dreamy', 'mysterious', 'uplifting'];
-const VALID_PROVIDERS = ['groq', 'openrouter', 'gemini'];
+const VALID_PROVIDERS = ['groq', 'openrouter', 'gemini', 'nvidia', '9router'];
 
 const PROVIDER_ENDPOINTS = {
   groq: 'https://api.groq.com/openai/v1/chat/completions',
   openrouter: 'https://openrouter.ai/api/v1/chat/completions',
+  nvidia: 'https://integrate.api.nvidia.com/v1/chat/completions',
+  '9router': 'https://router.dvaren.online/v1/chat/completions',
 };
 
 // Source Owner configuration (9router)
