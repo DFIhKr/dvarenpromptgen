@@ -76,6 +76,7 @@ export function AddApiKeyDialog({ onAdd, disabled, keyCount }: AddApiKeyDialogPr
   const [provider, setProvider] = useState<ProviderValue>('groq');
   const [apiKey, setApiKey] = useState('');
   const [label, setLabel] = useState('');
+  const [customEndpoint, setCustomEndpoint] = useState('');
   const [loading, setLoading] = useState(false);
 
   const currentProvider = PROVIDERS.find(p => p.value === provider)!;
