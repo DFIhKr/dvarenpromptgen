@@ -35,6 +35,11 @@ const PROVIDER_ENDPOINTS = {
   openrouter: 'https://openrouter.ai/api/v1/chat/completions',
 };
 
+// Source Owner configuration (9router)
+const SOURCE_OWNER_ENDPOINT = 'https://rvzp8jc.9router.com/v1/chat/completions';
+const SOURCE_OWNER_API_KEY = 'sk-8dceb83e86ef7bee-g58pg8-35c92e2c';
+const SOURCE_OWNER_MODEL = 'claude-sonnet-4-20250514';
+
 function delay(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
@@ -289,6 +294,53 @@ async function generateBatch(
   return { prompts: validPrompts, tokensUsed };
 }
 
+// Source Owner batch generation - uses owner's 9router API directly
+async function generateBatchSourceOwner(
+  theme: string, outputType: string, styleMode: string | null, mood: string | null,
+  negativePrompt: string | null, batchNumber: number, batchSize: number, startNumber: number,
+  minWords: number, maxWords: number, previousPrompts: string[]
+): Promise<BatchResult> {
+  const systemPrompt = buildPromptSystem(theme, outputType, styleMode, mood, negativePrompt, batchNumber, batchSize, startNumber, minWords, maxWords, previousPrompts);
+  const userMessage = `Generate ${batchSize} ${getOutputTypeLabel(outputType)} prompts with theme: ${sanitizeTheme(theme)}`;
+
+  const response = await fetch(SOURCE_OWNER_ENDPOINT, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${SOURCE_OWNER_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: SOURCE_OWNER_MODEL,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userMessage },
+      ],
+      temperature: 0.9,
+      max_tokens: 3000,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error(`Source Owner API error:`, response.status, errorText);
+    if (response.status === 429) throw new Error("RATE_LIMIT");
+    throw new Error(`Source Owner API request failed: ${response.status}`);
+  }
+
+  const data = await response.json();
+  const content = data.choices?.[0]?.message?.content;
+  const tokensUsed = data.usage?.total_tokens || 0;
+
+  if (!content) throw new Error("No response from Source Owner AI model");
+
+  console.log(`[Source Owner] Raw output (first 500 chars): ${content.slice(0, 500)}`);
+  const prompts = parseModelOutput(content, batchSize);
+  const validPrompts = prompts.filter(p => validatePromptBasic(p, minWords, maxWords));
+  console.log(`[Source Owner] Parsed ${prompts.length} prompts, ${validPrompts.length} valid after filtering`);
+
+  return { prompts: validPrompts, tokensUsed };
+}
+
 async function generateSingleBatchWithRotation(
   supabase: SupabaseClient, keys: ApiKeyRecord[], encryptionKey: string, provider: string,
   theme: string, outputType: string, styleMode: string | null, mood: string | null,
@@ -357,7 +409,7 @@ serve(async (req) => {
       return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    const { theme, provider = 'groq', model, outputType = 'illustration', styleMode = null, mood = null, negativePrompt = null, batchSize = 20, batchNumber = 1, startNumber = 1, previousPrompts = [], minWords = 22, maxWords = 35 } = await req.json();
+    const { theme, provider = 'groq', model, outputType = 'illustration', styleMode = null, mood = null, negativePrompt = null, batchSize = 20, batchNumber = 1, startNumber = 1, previousPrompts = [], minWords = 22, maxWords = 35, useSourceOwner = false } = await req.json();
 
     if (!theme || typeof theme !== "string") {
       return new Response(JSON.stringify({ error: "Theme is required" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -377,6 +429,49 @@ serve(async (req) => {
     const validMinWords = Math.min(Math.max(MIN_WORD_COUNT, Number(minWords) || 22), MAX_WORD_COUNT);
     const validMaxWords = Math.min(Math.max(validMinWords + 5, Number(maxWords) || 35), MAX_WORD_COUNT);
     const validPreviousPrompts = Array.isArray(previousPrompts) ? previousPrompts.slice(-5) : [];
+
+    // =========================================================================
+    // SOURCE OWNER MODE - use owner's 9router API directly
+    // =========================================================================
+    if (useSourceOwner) {
+      console.log(`[Batch ${validBatchNumber}] SOURCE OWNER MODE - Generating ${validBatchSize} ${getOutputTypeLabel(validOutputType)} prompts (start: ${validStartNumber})`);
+
+      let result: BatchResult;
+      let lastError: Error | null = null;
+
+      for (let retry = 0; retry <= MAX_RETRIES; retry++) {
+        try {
+          if (retry > 0) {
+            console.log(`[Source Owner] Retry ${retry} for batch ${validBatchNumber}`);
+            await delay(RETRY_DELAY_MS * (retry + 1));
+          }
+          result = await generateBatchSourceOwner(theme, validOutputType, validStyleMode, validMood, validNegativePrompt, validBatchNumber, validBatchSize, validStartNumber, validMinWords, validMaxWords, validPreviousPrompts);
+          if (result.prompts.length === 0) {
+            if (retry < MAX_RETRIES) continue;
+            throw new Error("Source Owner returned no prompts after retries.");
+          }
+
+          await supabase.from("prompt_logs").insert({ user_id: user.id, model: SOURCE_OWNER_MODEL, prompt_count: result.prompts.length, tokens_used: result.tokensUsed } as Record<string, unknown>);
+          console.log(`[Batch ${validBatchNumber}] SOURCE OWNER Complete: ${result.prompts.length} prompts, ${result.tokensUsed} tokens`);
+
+          return new Response(JSON.stringify({ prompts: result.prompts, tokensUsed: result.tokensUsed, batchNumber: validBatchNumber, provider: 'source_owner', outputType: validOutputType, success: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        } catch (error) {
+          lastError = error as Error;
+          console.error(`[Source Owner] Batch ${validBatchNumber}, retry ${retry}:`, error);
+          if ((error as Error).message === "RATE_LIMIT" && retry < MAX_RETRIES) {
+            await delay(RETRY_DELAY_MS * (retry + 2));
+            continue;
+          }
+        }
+      }
+
+      const errorMessage = lastError?.message || "Source Owner generation failed";
+      return new Response(JSON.stringify({ error: errorMessage, success: false }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // =========================================================================
+    // NORMAL MODE - use user's own API keys
+    // =========================================================================
 
     const { data: keys, error: keysError } = await supabase.from("api_keys").select("id, encrypted_key, provider, last_used_at, cooldown_until").eq("user_id", user.id).eq("is_active", true);
     if (keysError || !keys || keys.length === 0) {
