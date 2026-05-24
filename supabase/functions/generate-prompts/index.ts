@@ -30,12 +30,18 @@ const VALID_STYLE_MODES = ['cinematic', 'glitch', 'retro', 'cyberpunk', 'minimal
 const VALID_MOODS = ['dark', 'calm', 'futuristic', 'horror', 'energetic', 'dreamy', 'mysterious', 'uplifting'];
 const VALID_PROVIDERS = ['groq', 'openrouter', 'gemini', 'nvidia', '9router'];
 
-const PROVIDER_ENDPOINTS = {
+const PROVIDER_ENDPOINTS: Record<string, string> = {
   groq: 'https://api.groq.com/openai/v1/chat/completions',
   openrouter: 'https://openrouter.ai/api/v1/chat/completions',
   nvidia: 'https://integrate.api.nvidia.com/v1/chat/completions',
-  '9router': 'https://router.dvaren.online/v1/chat/completions',
 };
+
+function resolve9RouterEndpoint(customEndpoint: string | null | undefined): string {
+  const base = (customEndpoint || '').trim().replace(/\/+$/, '');
+  if (!base) throw new Error("9Router endpoint URL is missing for this API key.");
+  if (/\/v1$/i.test(base)) return `${base}/chat/completions`;
+  return `${base}/v1/chat/completions`;
+}
 
 // Source Owner configuration (9router)
 const SOURCE_OWNER_ENDPOINT = 'https://router.dvaren.online/v1/chat/completions';
