@@ -26,6 +26,18 @@ const PROVIDER_CONFIGS = {
     minLength: 20,
     maxLength: 200,
   },
+  nvidia: {
+    prefix: 'nvapi-',
+    name: 'NVIDIA NIM',
+    minLength: 20,
+    maxLength: 300,
+  },
+  '9router': {
+    prefix: 'sk-',
+    name: '9Router',
+    minLength: 20,
+    maxLength: 300,
+  },
 };
 
 serve(async (req) => {
