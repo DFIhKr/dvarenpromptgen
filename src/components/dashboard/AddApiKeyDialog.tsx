@@ -230,7 +230,7 @@ export function AddApiKeyDialog({ onAdd, disabled, keyCount }: AddApiKeyDialogPr
             </Button>
             <Button
               type="submit"
-              disabled={loading || !apiKey.trim()}
+              disabled={loading || !apiKey.trim() || (provider === '9router' && !customEndpoint.trim())}
               className="bg-primary text-primary-foreground hover:bg-primary/90"
             >
               {loading ? (
