@@ -73,7 +73,7 @@ const PROVIDERS = [
 
 export function AddApiKeyDialog({ onAdd, disabled, keyCount }: AddApiKeyDialogProps) {
   const [open, setOpen] = useState(false);
-  const [provider, setProvider] = useState<'groq' | 'openrouter' | 'gemini'>('groq');
+  const [provider, setProvider] = useState<ProviderValue>('groq');
   const [apiKey, setApiKey] = useState('');
   const [label, setLabel] = useState('');
   const [loading, setLoading] = useState(false);
