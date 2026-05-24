@@ -70,7 +70,7 @@ serve(async (req) => {
       );
     }
 
-    const { action, apiKey, provider = 'groq', label } = await req.json();
+    const { action, apiKey, provider = 'groq', label, customEndpoint } = await req.json();
 
     const validActions = ["add", "get_decrypted", "list", "delete", "toggle"];
     if (!action || typeof action !== "string" || !validActions.includes(action)) {
