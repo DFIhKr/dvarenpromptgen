@@ -23,7 +23,7 @@ import { Plus, Key, Loader2, ExternalLink } from 'lucide-react';
 type ProviderValue = 'groq' | 'openrouter' | 'gemini' | 'nvidia' | '9router';
 
 interface AddApiKeyDialogProps {
-  onAdd: (apiKey: string, provider: ProviderValue, label?: string) => Promise<void>;
+  onAdd: (apiKey: string, provider: ProviderValue, label?: string, customEndpoint?: string) => Promise<void>;
   disabled?: boolean;
   keyCount: number;
 }
@@ -76,6 +76,7 @@ export function AddApiKeyDialog({ onAdd, disabled, keyCount }: AddApiKeyDialogPr
   const [provider, setProvider] = useState<ProviderValue>('groq');
   const [apiKey, setApiKey] = useState('');
   const [label, setLabel] = useState('');
+  const [customEndpoint, setCustomEndpoint] = useState('');
   const [loading, setLoading] = useState(false);
 
   const currentProvider = PROVIDERS.find(p => p.value === provider)!;
@@ -100,12 +101,19 @@ export function AddApiKeyDialog({ onAdd, disabled, keyCount }: AddApiKeyDialogPr
     e.preventDefault();
     const cleanedKey = sanitizeApiKey(apiKey);
     if (!cleanedKey) return;
+    if (provider === '9router' && !customEndpoint.trim()) return;
 
     setLoading(true);
     try {
-      await onAdd(cleanedKey, provider, label.trim() || undefined);
+      await onAdd(
+        cleanedKey,
+        provider,
+        label.trim() || undefined,
+        provider === '9router' ? customEndpoint.trim() : undefined,
+      );
       setApiKey('');
       setLabel('');
+      setCustomEndpoint('');
       setProvider('groq');
       setOpen(false);
     } finally {
@@ -182,6 +190,24 @@ export function AddApiKeyDialog({ onAdd, disabled, keyCount }: AddApiKeyDialogPr
             />
           </div>
 
+          {provider === '9router' && (
+            <div className="space-y-2">
+              <Label htmlFor="customEndpoint">9Router Endpoint URL *</Label>
+              <Input
+                id="customEndpoint"
+                type="url"
+                placeholder="https://your-tunnel.9router.com/v1"
+                value={customEndpoint}
+                onChange={(e) => setCustomEndpoint(e.target.value)}
+                required
+                className="h-11 bg-muted/50 border-border font-mono text-sm"
+              />
+              <p className="text-xs text-muted-foreground">
+                Your personal 9Router base URL. This will be used for API calls.
+              </p>
+            </div>
+          )}
+
           <div className="space-y-2">
             <Label htmlFor="label">Label (optional)</Label>
             <Input
@@ -204,7 +230,7 @@ export function AddApiKeyDialog({ onAdd, disabled, keyCount }: AddApiKeyDialogPr
             </Button>
             <Button
               type="submit"
-              disabled={loading || !apiKey.trim()}
+              disabled={loading || !apiKey.trim() || (provider === '9router' && !customEndpoint.trim())}
               className="bg-primary text-primary-foreground hover:bg-primary/90"
             >
               {loading ? (

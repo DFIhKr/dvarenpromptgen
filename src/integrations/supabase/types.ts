@@ -18,6 +18,7 @@ export type Database = {
         Row: {
           cooldown_until: string | null
           created_at: string
+          custom_endpoint: string | null
           encrypted_key: string
           id: string
           is_active: boolean
@@ -31,6 +32,7 @@ export type Database = {
         Insert: {
           cooldown_until?: string | null
           created_at?: string
+          custom_endpoint?: string | null
           encrypted_key: string
           id?: string
           is_active?: boolean
@@ -44,6 +46,7 @@ export type Database = {
         Update: {
           cooldown_until?: string | null
           created_at?: string
+          custom_endpoint?: string | null
           encrypted_key?: string
           id?: string
           is_active?: boolean

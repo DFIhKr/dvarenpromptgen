@@ -30,12 +30,18 @@ const VALID_STYLE_MODES = ['cinematic', 'glitch', 'retro', 'cyberpunk', 'minimal
 const VALID_MOODS = ['dark', 'calm', 'futuristic', 'horror', 'energetic', 'dreamy', 'mysterious', 'uplifting'];
 const VALID_PROVIDERS = ['groq', 'openrouter', 'gemini', 'nvidia', '9router'];
 
-const PROVIDER_ENDPOINTS = {
+const PROVIDER_ENDPOINTS: Record<string, string> = {
   groq: 'https://api.groq.com/openai/v1/chat/completions',
   openrouter: 'https://openrouter.ai/api/v1/chat/completions',
   nvidia: 'https://integrate.api.nvidia.com/v1/chat/completions',
-  '9router': 'https://router.dvaren.online/v1/chat/completions',
 };
+
+function resolve9RouterEndpoint(customEndpoint: string | null | undefined): string {
+  const base = (customEndpoint || '').trim().replace(/\/+$/, '');
+  if (!base) throw new Error("9Router endpoint URL is missing for this API key.");
+  if (/\/v1$/i.test(base)) return `${base}/chat/completions`;
+  return `${base}/v1/chat/completions`;
+}
 
 // Source Owner configuration (9router)
 const SOURCE_OWNER_ENDPOINT = 'https://router.dvaren.online/v1/chat/completions';
@@ -52,6 +58,7 @@ interface ApiKeyRecord {
   provider: string;
   last_used_at: string | null;
   cooldown_until: string | null;
+  custom_endpoint: string | null;
 }
 
 interface BatchResult {
@@ -213,7 +220,8 @@ async function generateBatch(
   apiKey: string, provider: string, theme: string, outputType: string,
   styleMode: string | null, mood: string | null, negativePrompt: string | null,
   model: string, batchNumber: number, batchSize: number, startNumber: number,
-  minWords: number, maxWords: number, previousPrompts: string[]
+  minWords: number, maxWords: number, previousPrompts: string[],
+  customEndpoint: string | null
 ): Promise<BatchResult> {
   const systemPrompt = buildPromptSystem(theme, outputType, styleMode, mood, negativePrompt, batchNumber, batchSize, startNumber, minWords, maxWords, previousPrompts);
   const userMessage = `Generate ${batchSize} ${getOutputTypeLabel(outputType)} prompts with theme: ${sanitizeTheme(theme)}`;
@@ -249,7 +257,9 @@ async function generateBatch(
     tokensUsed = data.usageMetadata?.totalTokenCount || 0;
   } else {
     // OpenAI-compatible format (Groq, OpenRouter, NVIDIA NIM, 9Router)
-    const endpoint = PROVIDER_ENDPOINTS[provider as keyof typeof PROVIDER_ENDPOINTS];
+    const endpoint = provider === '9router'
+      ? resolve9RouterEndpoint(customEndpoint)
+      : PROVIDER_ENDPOINTS[provider];
     const headers: Record<string, string> = {
       "Authorization": `Bearer ${apiKey}`,
       "Content-Type": "application/json",
@@ -379,7 +389,7 @@ async function generateSingleBatchWithRotation(
           console.log(`Retry ${retry} for batch ${batchNumber} with key ${keyRecord.id.slice(0, 8)}`);
           await delay(RETRY_DELAY_MS * (retry + 1));
         }
-        const result = await generateBatch(apiKey, provider, theme, outputType, styleMode, mood, negativePrompt, model, batchNumber, batchSize, startNumber, minWords, maxWords, previousPrompts);
+        const result = await generateBatch(apiKey, provider, theme, outputType, styleMode, mood, negativePrompt, model, batchNumber, batchSize, startNumber, minWords, maxWords, previousPrompts, keyRecord.custom_endpoint);
         if (result.prompts.length === 0) {
           console.warn(`Batch ${batchNumber} returned 0 prompts, retrying...`);
           if (retry < MAX_RETRIES) continue;
@@ -489,7 +499,7 @@ serve(async (req) => {
     // NORMAL MODE - use user's own API keys
     // =========================================================================
 
-    const { data: keys, error: keysError } = await supabase.from("api_keys").select("id, encrypted_key, provider, last_used_at, cooldown_until").eq("user_id", user.id).eq("is_active", true);
+    const { data: keys, error: keysError } = await supabase.from("api_keys").select("id, encrypted_key, provider, last_used_at, cooldown_until, custom_endpoint").eq("user_id", user.id).eq("is_active", true);
     if (keysError || !keys || keys.length === 0) {
       return new Response(JSON.stringify({ error: "No active API keys found. Please add an API key first." }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
