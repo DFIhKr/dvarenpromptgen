@@ -140,7 +140,7 @@ export function AddApiKeyDialog({ onAdd, disabled, keyCount }: AddApiKeyDialogPr
         <form onSubmit={handleSubmit} className="space-y-4 mt-4">
           <div className="space-y-2">
             <Label htmlFor="provider">Provider</Label>
-            <Select value={provider} onValueChange={(v) => setProvider(v as 'groq' | 'openrouter' | 'gemini')}>
+            <Select value={provider} onValueChange={(v) => setProvider(v as ProviderValue)}>
               <SelectTrigger className="h-11 bg-muted/50 border-border">
                 <SelectValue />
               </SelectTrigger>
