@@ -248,7 +248,7 @@ async function generateBatch(
     content = data.candidates?.[0]?.content?.parts?.[0]?.text;
     tokensUsed = data.usageMetadata?.totalTokenCount || 0;
   } else {
-    // OpenAI-compatible format (Groq, OpenRouter)
+    // OpenAI-compatible format (Groq, OpenRouter, NVIDIA NIM, 9Router)
     const endpoint = PROVIDER_ENDPOINTS[provider as keyof typeof PROVIDER_ENDPOINTS];
     const headers: Record<string, string> = {
       "Authorization": `Bearer ${apiKey}`,
@@ -259,18 +259,30 @@ async function generateBatch(
       headers["X-Title"] = "PromptGen";
     }
 
+    const defaultModelByProvider: Record<string, string> = {
+      groq: "llama-3.3-70b-versatile",
+      openrouter: "xiaomi/mimo-v2-flash:free",
+      nvidia: "minimax-m2.7",
+      '9router': "claude-sonnet-4.6",
+    };
+
+    const requestBody: Record<string, unknown> = {
+      model: model || defaultModelByProvider[provider] || "llama-3.3-70b-versatile",
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userMessage },
+      ],
+      temperature: 0.9,
+      max_tokens: 3000,
+    };
+    if (provider === 'nvidia' || provider === '9router') {
+      requestBody.stream = false;
+    }
+
     const response = await fetch(endpoint, {
       method: "POST",
       headers,
-      body: JSON.stringify({
-        model: model || (provider === 'groq' ? "llama-3.3-70b-versatile" : "xiaomi/mimo-v2-flash:free"),
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userMessage },
-        ],
-        temperature: 0.9,
-        max_tokens: 3000,
-      }),
+      body: JSON.stringify(requestBody),
     });
 
     if (!response.ok) {
