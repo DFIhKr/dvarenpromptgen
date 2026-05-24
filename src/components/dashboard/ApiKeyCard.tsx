@@ -6,7 +6,7 @@ interface ApiKeyCardProps {
   id: string;
   keyHint: string;
   label: string | null;
-  provider: 'groq' | 'openrouter' | 'gemini';
+  provider: 'groq' | 'openrouter' | 'gemini' | 'nvidia' | '9router';
   isActive: boolean;
   createdAt: string;
   onToggle: (id: string, isActive: boolean) => void;
