@@ -257,7 +257,9 @@ async function generateBatch(
     tokensUsed = data.usageMetadata?.totalTokenCount || 0;
   } else {
     // OpenAI-compatible format (Groq, OpenRouter, NVIDIA NIM, 9Router)
-    const endpoint = PROVIDER_ENDPOINTS[provider as keyof typeof PROVIDER_ENDPOINTS];
+    const endpoint = provider === '9router'
+      ? resolve9RouterEndpoint(customEndpoint)
+      : PROVIDER_ENDPOINTS[provider];
     const headers: Record<string, string> = {
       "Authorization": `Bearer ${apiKey}`,
       "Content-Type": "application/json",
