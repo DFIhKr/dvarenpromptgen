@@ -499,7 +499,7 @@ serve(async (req) => {
     // NORMAL MODE - use user's own API keys
     // =========================================================================
 
-    const { data: keys, error: keysError } = await supabase.from("api_keys").select("id, encrypted_key, provider, last_used_at, cooldown_until").eq("user_id", user.id).eq("is_active", true);
+    const { data: keys, error: keysError } = await supabase.from("api_keys").select("id, encrypted_key, provider, last_used_at, cooldown_until, custom_endpoint").eq("user_id", user.id).eq("is_active", true);
     if (keysError || !keys || keys.length === 0) {
       return new Response(JSON.stringify({ error: "No active API keys found. Please add an API key first." }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
