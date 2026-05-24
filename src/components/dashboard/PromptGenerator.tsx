@@ -22,6 +22,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Progress } from '@/components/ui/progress';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { SourceOwnerToggle } from '@/components/dashboard/SourceOwnerToggle';
 
 interface ApiKey {
   id: string;
@@ -112,15 +113,16 @@ export function PromptGenerator({ hasActiveKeys, apiKeys }: PromptGeneratorProps
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const [progress, setProgress] = useState({ current: 0, total: 0, batch: 0, totalBatches: 0 });
   const [error, setError] = useState<string | null>(null);
+  const [useSourceOwner, setUseSourceOwner] = useState(false);
   const { toast } = useToast();
   const shouldStopRef = useRef(false);
 
   const hasGroqKeys = apiKeys.some(k => k.provider === 'groq' && k.is_active);
   const hasOpenRouterKeys = apiKeys.some(k => k.provider === 'openrouter' && k.is_active);
   const hasGeminiKeys = apiKeys.some(k => k.provider === 'gemini' && k.is_active);
-  const hasActiveProviderKeys = provider === 'groq' ? hasGroqKeys : provider === 'openrouter' ? hasOpenRouterKeys : hasGeminiKeys;
+  const hasActiveProviderKeys = useSourceOwner ? true : (provider === 'groq' ? hasGroqKeys : provider === 'openrouter' ? hasOpenRouterKeys : hasGeminiKeys);
   const currentModels = provider === 'groq' ? GROQ_MODELS : provider === 'openrouter' ? OPENROUTER_MODELS : GEMINI_MODELS;
-  const activeProviderKeyCount = apiKeys.filter(k => k.provider === provider && k.is_active).length;
+  const activeProviderKeyCount = useSourceOwner ? 1 : apiKeys.filter(k => k.provider === provider && k.is_active).length;
 
   const handleProviderChange = (newProvider: 'groq' | 'openrouter' | 'gemini') => {
     setProvider(newProvider);
@@ -191,7 +193,7 @@ export function PromptGenerator({ hasActiveKeys, apiKeys }: PromptGeneratorProps
         const results = await Promise.allSettled(
           waveBatches.map(async (batch) => {
             const { data, error: invokeError } = await supabase.functions.invoke('generate-prompts', {
-              body: { theme: theme.trim(), provider, model, outputType, styleMode: styleMode === 'none' ? null : styleMode, mood: mood === 'none' ? null : mood, negativePrompt: negativePrompt.trim() || null, batchSize: batch.batchSize, batchNumber: batch.batchNumber, startNumber: batch.startNumber, previousPrompts: batch.previousPrompts, minWords, maxWords },
+              body: { theme: theme.trim(), provider, model, outputType, styleMode: styleMode === 'none' ? null : styleMode, mood: mood === 'none' ? null : mood, negativePrompt: negativePrompt.trim() || null, batchSize: batch.batchSize, batchNumber: batch.batchNumber, startNumber: batch.startNumber, previousPrompts: batch.previousPrompts, minWords, maxWords, useSourceOwner },
             });
             if (invokeError) throw invokeError;
             if (data?.error) throw new Error(data.error);
@@ -229,7 +231,7 @@ export function PromptGenerator({ hasActiveKeys, apiKeys }: PromptGeneratorProps
 
     setLoading(false); setProgress({ current: orderedPrompts.length, total: totalCount, batch: batchNum, totalBatches });
     if (uniquePrompts.size >= totalCount && !shouldStopRef.current && !hadError) toast({ title: 'Generation complete', description: `Successfully generated ${orderedPrompts.length} prompts.` });
-  }, [theme, provider, model, outputType, styleMode, mood, negativePrompt, promptCount, parallelEnabled, minWords, maxWords, hasActiveProviderKeys, activeProviderKeyCount, toast]);
+  }, [theme, provider, model, outputType, styleMode, mood, negativePrompt, promptCount, parallelEnabled, minWords, maxWords, hasActiveProviderKeys, activeProviderKeyCount, useSourceOwner, toast]);
 
   const handleCancel = useCallback(() => { shouldStopRef.current = true; }, []);
 
@@ -251,7 +253,7 @@ export function PromptGenerator({ hasActiveKeys, apiKeys }: PromptGeneratorProps
 
   return (
     <div className="space-y-6">
-      {!hasActiveKeys && (<Alert className="border-warning/50 bg-warning/10"><AlertCircle className="h-4 w-4 text-warning" /><AlertDescription>You need at least one active API key to generate prompts. Add one above to get started.</AlertDescription></Alert>)}
+      {!hasActiveKeys && !useSourceOwner && (<Alert className="border-warning/50 bg-warning/10"><AlertCircle className="h-4 w-4 text-warning" /><AlertDescription>You need at least one active API key to generate prompts. Add one above or enable "Use Source Owner".</AlertDescription></Alert>)}
 
       <div className="grid gap-6 lg:grid-cols-2">
         <div className="space-y-5">
@@ -292,6 +294,13 @@ export function PromptGenerator({ hasActiveKeys, apiKeys }: PromptGeneratorProps
             <p className="text-xs text-muted-foreground">Elements to exclude from generated prompts (appended as "— avoid: ...")</p>
           </div>
 
+          <SourceOwnerToggle
+            checked={useSourceOwner}
+            onCheckedChange={setUseSourceOwner}
+            disabled={loading}
+          />
+
+          {!useSourceOwner && (
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="provider">Provider</Label>
@@ -308,6 +317,7 @@ export function PromptGenerator({ hasActiveKeys, apiKeys }: PromptGeneratorProps
               </Select>
             </div>
           </div>
+          )}
 
           <div className="space-y-2">
             <Label htmlFor="count">Total Prompts</Label>
@@ -333,7 +343,7 @@ export function PromptGenerator({ hasActiveKeys, apiKeys }: PromptGeneratorProps
             </div>
           </div>
 
-          {!hasActiveProviderKeys && hasActiveKeys && (<Alert className="border-warning/50 bg-warning/10"><AlertCircle className="h-4 w-4 text-warning" /><AlertDescription>You don't have active {getProviderLabel(provider)} keys. Switch providers or add a new key.</AlertDescription></Alert>)}
+          {!useSourceOwner && !hasActiveProviderKeys && hasActiveKeys && (<Alert className="border-warning/50 bg-warning/10"><AlertCircle className="h-4 w-4 text-warning" /><AlertDescription>You don't have active {getProviderLabel(provider)} keys. Switch providers or add a new key.</AlertDescription></Alert>)}
           {isLargeGeneration && !loading && (<Alert className="border-primary/30 bg-primary/5"><Info className="h-4 w-4 text-primary" /><AlertDescription className="text-muted-foreground">Large generations are processed in {totalBatches} batches for stability.</AlertDescription></Alert>)}
 
           {loading ? (<Button onClick={handleCancel} variant="destructive" className="w-full h-12 font-semibold"><Square className="h-5 w-5 mr-2" />Stop Generation</Button>) : (<Button onClick={handleGenerate} disabled={!hasActiveProviderKeys || !theme.trim() || !promptCount} className="w-full h-12 bg-primary text-primary-foreground hover:bg-primary/90 font-semibold"><Sparkles className="h-5 w-5 mr-2" />Generate {promptCount || 0} Prompts</Button>)}
@@ -350,7 +360,7 @@ export function PromptGenerator({ hasActiveKeys, apiKeys }: PromptGeneratorProps
           <ScrollArea className="h-[500px] rounded-xl border border-border bg-muted/30">
             <div className="p-4">
               {error ? (<div className="flex flex-col items-center justify-center h-[450px] text-destructive"><AlertCircle className="h-12 w-12 mb-3 opacity-70" /><p className="text-sm font-medium">Generation Error</p><p className="text-xs mt-2 text-center max-w-[280px] text-muted-foreground">{error}</p></div>
-              ) : !hasOutput ? (<div className="flex flex-col items-center justify-center h-[450px] text-muted-foreground"><Sparkles className="h-12 w-12 mb-3 opacity-50" /><p className="text-sm font-medium">{getOutputTypeLabel(outputType)} Prompts</p><p className="text-xs mt-2 text-center max-w-[220px]">{minWords}–{maxWords} word prompts via {getProviderLabel(provider)}</p>{getStyleModeLabel(styleMode) && (<p className="text-xs mt-1 text-primary">Style: {getStyleModeLabel(styleMode)}</p>)}{getMoodLabel(mood) && (<p className="text-xs mt-1 text-primary/80">Mood: {getMoodLabel(mood)}</p>)}{isLargeGeneration && (<p className="text-xs mt-2 text-center max-w-[200px]">{promptCount} prompts in {totalBatches} batches</p>)}</div>
+              ) : !hasOutput ? (<div className="flex flex-col items-center justify-center h-[450px] text-muted-foreground"><Sparkles className="h-12 w-12 mb-3 opacity-50" /><p className="text-sm font-medium">{getOutputTypeLabel(outputType)} Prompts</p><p className="text-xs mt-2 text-center max-w-[220px]">{minWords}–{maxWords} word prompts via {useSourceOwner ? 'Source Owner (Claude Sonnet 4.5)' : getProviderLabel(provider)}</p>{getStyleModeLabel(styleMode) && (<p className="text-xs mt-1 text-primary">Style: {getStyleModeLabel(styleMode)}</p>)}{getMoodLabel(mood) && (<p className="text-xs mt-1 text-primary/80">Mood: {getMoodLabel(mood)}</p>)}{isLargeGeneration && (<p className="text-xs mt-2 text-center max-w-[200px]">{promptCount} prompts in {totalBatches} batches</p>)}</div>
               ) : (<div className="space-y-2">{textOutput.split('\n').filter(l => l.trim()).map((line, index) => (<div key={index} className="group p-3 rounded-lg bg-card border border-border/50 hover:border-primary/30 transition-colors"><div className="flex items-start justify-between gap-2"><p className="flex-1 text-sm text-foreground">{line}</p><Button variant="ghost" size="icon" onClick={() => copyPrompt(line.replace(/^\d+\.\s*/, ''), index)} className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">{copiedIndex === index ? (<Check className="h-3.5 w-3.5 text-primary" />) : (<Copy className="h-3.5 w-3.5" />)}</Button></div></div>))}</div>)}
             </div>
           </ScrollArea>
