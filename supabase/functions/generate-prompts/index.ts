@@ -366,7 +366,8 @@ async function generateSingleBatchWithRotation(
   const availableKeys = getAvailableKeys(keys, provider);
 
   if (availableKeys.length === 0) {
-    const providerName = provider === 'groq' ? 'Groq' : provider === 'openrouter' ? 'OpenRouter' : 'Gemini';
+    const providerLabels: Record<string, string> = { groq: 'Groq', openrouter: 'OpenRouter', gemini: 'Gemini', nvidia: 'NVIDIA NIM', '9router': '9Router' };
+    const providerName = providerLabels[provider] || provider;
     throw new Error(`No active ${providerName} API keys available. Please add a key or wait for cooldown.`);
   }
 
