@@ -220,7 +220,8 @@ async function generateBatch(
   apiKey: string, provider: string, theme: string, outputType: string,
   styleMode: string | null, mood: string | null, negativePrompt: string | null,
   model: string, batchNumber: number, batchSize: number, startNumber: number,
-  minWords: number, maxWords: number, previousPrompts: string[]
+  minWords: number, maxWords: number, previousPrompts: string[],
+  customEndpoint: string | null
 ): Promise<BatchResult> {
   const systemPrompt = buildPromptSystem(theme, outputType, styleMode, mood, negativePrompt, batchNumber, batchSize, startNumber, minWords, maxWords, previousPrompts);
   const userMessage = `Generate ${batchSize} ${getOutputTypeLabel(outputType)} prompts with theme: ${sanitizeTheme(theme)}`;
