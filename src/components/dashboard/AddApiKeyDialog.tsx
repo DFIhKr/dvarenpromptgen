@@ -23,7 +23,7 @@ import { Plus, Key, Loader2, ExternalLink } from 'lucide-react';
 type ProviderValue = 'groq' | 'openrouter' | 'gemini' | 'nvidia' | '9router';
 
 interface AddApiKeyDialogProps {
-  onAdd: (apiKey: string, provider: ProviderValue, label?: string) => Promise<void>;
+  onAdd: (apiKey: string, provider: ProviderValue, label?: string, customEndpoint?: string) => Promise<void>;
   disabled?: boolean;
   keyCount: number;
 }
