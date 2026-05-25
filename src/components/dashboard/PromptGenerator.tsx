@@ -248,7 +248,7 @@ export function PromptGenerator({ hasActiveKeys, apiKeys }: PromptGeneratorProps
         setProgress({ current: uniquePrompts.size, total: totalCount, batch: batchNum, totalBatches });
         if (hadWaveError) { hadError = true; console.error(`Wave error (latest batch ${batchNum}):`, lastWaveError); }
         if (addedThisWave === 0) { noProgressCount += 1; } else { noProgressCount = 0; }
-        if (noProgressCount >= maxNoProgressBatches) throw new Error('Model returned no new prompts for multiple batches. Please try again or adjust settings.');
+        if (noProgressCount >= maxNoProgressBatches) throw new Error('Model tidak menghasilkan prompt baru. Coba ubah tema atau gunakan model lain.');
         if (uniquePrompts.size < totalCount && !shouldStopRef.current) await new Promise(resolve => setTimeout(resolve, BATCH_DELAY_MS));
       } catch (err) {
         console.error(`Batch ${batchNum} error:`, err); hadError = true;
@@ -256,8 +256,8 @@ export function PromptGenerator({ hasActiveKeys, apiKeys }: PromptGeneratorProps
           setTextOutput(orderedPrompts.map((text, index) => `${index + 1}. ${text}`).join('\n'));
           toast({ variant: 'default', title: 'Partial results', description: `Generated ${orderedPrompts.length} of ${totalCount} prompts before error.` }); break;
         }
-        const errorMessage = err instanceof Error ? err.message : 'Failed to generate prompts';
-        setError(errorMessage); toast({ variant: 'destructive', title: 'Generation failed', description: errorMessage }); setLoading(false); return;
+        const errorMessage = err instanceof Error ? err.message : 'Gagal menghasilkan prompt';
+        setError(errorMessage); toast({ variant: 'destructive', title: 'Generasi gagal', description: errorMessage }); setLoading(false); return;
       }
     }
 
