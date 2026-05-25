@@ -496,7 +496,7 @@ serve(async (req) => {
       }
 
       const errorMessage = lastError?.message || "Source Owner generation failed";
-      return new Response(JSON.stringify({ error: errorMessage, success: false }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      return new Response(JSON.stringify({ error: errorMessage, success: false, fallback: true }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     // =========================================================================
@@ -548,6 +548,6 @@ serve(async (req) => {
       userMessage = "Endpoint gagal dihubungi. Pastikan link endpoint benar dan berkerja.";
     }
     
-    return new Response(JSON.stringify({ error: userMessage, success: false }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    return new Response(JSON.stringify({ error: userMessage, success: false, fallback: true }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
 });
