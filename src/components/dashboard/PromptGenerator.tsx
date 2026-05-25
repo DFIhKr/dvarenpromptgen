@@ -57,7 +57,7 @@ const GEMINI_MODELS = [
 ];
 
 const NVIDIA_MODELS = [
-  { value: 'minimaxai/minimax-m2.7', label: 'MiniMax M2.7' },
+  { value: 'stepfun-ai/step-3.5-flash', label: 'Step 3.5 Flash (StepFun)' },
 ];
 
 const NINE_ROUTER_MODELS = [

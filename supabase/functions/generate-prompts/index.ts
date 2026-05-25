@@ -272,7 +272,7 @@ async function generateBatch(
     const defaultModelByProvider: Record<string, string> = {
       groq: "llama-3.3-70b-versatile",
       openrouter: "xiaomi/mimo-v2-flash:free",
-      nvidia: "minimax-m2.7",
+      nvidia: "stepfun-ai/step-3.5-flash",
       '9router': "claude-sonnet-4.6",
     };
 
@@ -515,7 +515,7 @@ serve(async (req) => {
 
     const { result, usedKeyId } = await generateSingleBatchWithRotation(supabase, keys as ApiKeyRecord[], encryptionKey, validProvider, theme, validOutputType, validStyleMode, validMood, validNegativePrompt, model, validBatchNumber, validBatchSize, validStartNumber, validMinWords, validMaxWords, validPreviousPrompts);
 
-    const defaultModelMap: Record<string, string> = { groq: "llama-3.3-70b-versatile", openrouter: "xiaomi/mimo-v2-flash:free", gemini: "gemini-2.5-flash", nvidia: "minimax-m2.7", '9router': "claude-sonnet-4.6" };
+    const defaultModelMap: Record<string, string> = { groq: "llama-3.3-70b-versatile", openrouter: "xiaomi/mimo-v2-flash:free", gemini: "gemini-2.5-flash", nvidia: "stepfun-ai/step-3.5-flash", '9router': "claude-sonnet-4.6" };
     const defaultModel = defaultModelMap[validProvider] || "llama-3.3-70b-versatile";
     await supabase.from("prompt_logs").insert({ user_id: user.id, model: model || defaultModel, prompt_count: result.prompts.length, tokens_used: result.tokensUsed } as Record<string, unknown>);
 
