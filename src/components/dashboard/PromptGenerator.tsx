@@ -45,7 +45,6 @@ const GROQ_MODELS = [
 ];
 
 const OPENROUTER_MODELS = [
-  { value: 'xiaomi/mimo-v2-flash:free', label: 'Xiaomi Mimo v2 Flash (Free)' },
   { value: 'meta-llama/llama-3.3-70b-instruct:free', label: 'Llama 3.3 70B (Free)' },
   { value: 'deepseek/deepseek-r1-0528:free', label: 'DeepSeek R1 0528 (Free)' },
 ];
