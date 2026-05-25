@@ -529,6 +529,6 @@ serve(async (req) => {
   } catch (error) {
     console.error("Error:", error);
     const errorMessage = (error as Error).message || "An unexpected error occurred";
-    return new Response(JSON.stringify({ error: errorMessage.includes("API keys") ? errorMessage : "Failed to generate prompts. Please try again.", success: false }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    return new Response(JSON.stringify({ error: errorMessage, success: false }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
 });
