@@ -39,7 +39,6 @@ interface PromptGeneratorProps {
 
 const GROQ_MODELS = [
   { value: 'meta-llama/llama-4-scout-17b-16e-instruct', label: 'Llama 4 Scout (17B)' },
-  { value: 'meta-llama/llama-4-maverick-17b-128e-instruct', label: 'Llama 4 Maverick (17B)' },
   { value: 'llama-3.3-70b-versatile', label: 'Llama 3.3 (70B)' },
   { value: 'llama-3.1-8b-instant', label: 'Llama 3.1 (8B)' },
 ];

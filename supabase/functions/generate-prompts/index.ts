@@ -418,7 +418,7 @@ async function generateSingleBatchWithRotation(
       }
     }
   }
-  throw lastError || new Error("All keys exhausted or in cooldown");
+  throw lastError || new Error("API key telah mencapai limitnya. Tunggu beberapa saat atau gunakan key lain.");
 }
 
 serve(async (req) => {
@@ -528,7 +528,26 @@ serve(async (req) => {
     return new Response(JSON.stringify({ prompts: result.prompts, tokensUsed: result.tokensUsed, batchNumber: validBatchNumber, provider: validProvider, outputType: validOutputType, success: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (error) {
     console.error("Error:", error);
-    const errorMessage = (error as Error).message || "An unexpected error occurred";
-    return new Response(JSON.stringify({ error: errorMessage, success: false }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    const rawMessage = (error as Error).message || "An unexpected error occurred";
+    
+    // User-friendly error messages
+    let userMessage = rawMessage;
+    if (rawMessage === "RATE_LIMIT" || rawMessage.includes("429")) {
+      userMessage = "API key telah mencapai limitnya. Tunggu beberapa saat atau gunakan key lain.";
+    } else if (rawMessage === "INVALID_KEY" || rawMessage.includes("401") || rawMessage.includes("403")) {
+      userMessage = "API key tidak valid atau telah expired. Periksa kembali key Anda.";
+    } else if (rawMessage.includes("404") || rawMessage.includes("<!DOCTYPE")) {
+      userMessage = "Endpoint gagal dihubungi. Pastikan link endpoint benar dan berkerja.";
+    } else if (rawMessage.includes("API keys")) {
+      userMessage = rawMessage;
+    } else if (rawMessage.includes("EMPTY_BATCH") || rawMessage.includes("no new prompts")) {
+      userMessage = "Model tidak menghasilkan prompt baru. Coba ubah tema atau gunakan model lain.";
+    } else if (rawMessage.includes("No active")) {
+      userMessage = rawMessage;
+    } else if (rawMessage.includes("endpoint") || rawMessage.includes("Endpoint")) {
+      userMessage = "Endpoint gagal dihubungi. Pastikan link endpoint benar dan berkerja.";
+    }
+    
+    return new Response(JSON.stringify({ error: userMessage, success: false }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
 });
