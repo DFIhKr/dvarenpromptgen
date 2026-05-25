@@ -548,6 +548,6 @@ serve(async (req) => {
       userMessage = "Endpoint gagal dihubungi. Pastikan link endpoint benar dan berkerja.";
     }
     
-    return new Response(JSON.stringify({ error: userMessage, success: false }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    return new Response(JSON.stringify({ error: userMessage, success: false, fallback: true }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
 });
