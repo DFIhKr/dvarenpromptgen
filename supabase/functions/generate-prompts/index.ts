@@ -289,6 +289,10 @@ async function generateBatch(
       requestBody.stream = false;
     }
 
+    if (provider === '9router') {
+      console.log(`[9Router] endpoint=${endpoint} model=${requestBody.model} stream=${requestBody.stream} customEndpointRaw=${customEndpoint}`);
+    }
+
     const response = await fetch(endpoint, {
       method: "POST",
       headers,
@@ -300,7 +304,7 @@ async function generateBatch(
       console.error(`${provider} API error:`, response.status, errorText);
       if (response.status === 429) throw new Error("RATE_LIMIT");
       if (response.status === 401 || response.status === 403) throw new Error("INVALID_KEY");
-      throw new Error(`API request failed: ${response.status}`);
+      throw new Error(`${provider} API ${response.status}: ${errorText.slice(0, 300)}`);
     }
 
     const data = await response.json();
@@ -525,6 +529,6 @@ serve(async (req) => {
   } catch (error) {
     console.error("Error:", error);
     const errorMessage = (error as Error).message || "An unexpected error occurred";
-    return new Response(JSON.stringify({ error: errorMessage.includes("API keys") ? errorMessage : "Failed to generate prompts. Please try again.", success: false }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    return new Response(JSON.stringify({ error: errorMessage, success: false }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
 });
