@@ -46,6 +46,8 @@ const GROQ_MODELS = [
 const OPENROUTER_MODELS = [
   { value: 'meta-llama/llama-3.3-70b-instruct:free', label: 'Llama 3.3 70B (Free)' },
   { value: 'deepseek/deepseek-r1-0528:free', label: 'DeepSeek R1 0528 (Free)' },
+  { value: 'google/gemma-4-31b-it:free', label: 'Gemma 4 31B (Free)' },
+  { value: 'nousresearch/hermes-3-llama-3.1-405b:free', label: 'Hermes 3 Llama 405B (Free)' },
 ];
 
 const GEMINI_MODELS = [
