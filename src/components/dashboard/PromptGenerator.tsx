@@ -246,6 +246,10 @@ export function PromptGenerator({ hasActiveKeys, apiKeys }: PromptGeneratorProps
 
         setTextOutput(orderedPrompts.map((text, index) => `${index + 1}. ${text}`).join('\n'));
         setProgress({ current: uniquePrompts.size, total: totalCount, batch: batchNum, totalBatches });
+        if (hadWaveError && addedThisWave === 0 && lastWaveError) {
+          // All batches in wave failed — throw the actual server error immediately
+          throw lastWaveError;
+        }
         if (hadWaveError) { hadError = true; console.error(`Wave error (latest batch ${batchNum}):`, lastWaveError); }
         if (addedThisWave === 0) { noProgressCount += 1; } else { noProgressCount = 0; }
         if (noProgressCount >= maxNoProgressBatches) throw new Error('Model tidak menghasilkan prompt baru. Coba ubah tema atau gunakan model lain.');
