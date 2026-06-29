@@ -24,7 +24,7 @@ import { Progress } from '@/components/ui/progress';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { SourceOwnerToggle } from '@/components/dashboard/SourceOwnerToggle';
 
-type ProviderType = 'groq' | 'openrouter' | 'gemini' | 'nvidia' | '9router';
+type ProviderType = 'groq' | 'openrouter' | 'gemini' | 'nvidia' | '9router' | 'custom';
 
 interface ApiKey {
   id: string;
@@ -76,7 +76,7 @@ function getModelsForProvider(p: ProviderType) {
     case 'openrouter': return OPENROUTER_MODELS;
     case 'gemini': return GEMINI_MODELS;
     case 'nvidia': return NVIDIA_MODELS;
-    case '9router': return NINE_ROUTER_MODELS;
+    case '9router': return NINE_ROUTER_MODELS;\n    case 'custom': return [];
   }
 }
 
@@ -118,7 +118,7 @@ const PROVIDERS: { value: ProviderType; label: string }[] = [
   { value: 'openrouter', label: 'OpenRouter' },
   { value: 'gemini', label: 'Gemini' },
   { value: 'nvidia', label: 'NVIDIA NIM' },
-  { value: '9router', label: '9Router' },
+  { value: '9router', label: '9Router' },\n  { value: 'custom', label: 'Custom (OpenAI)' },
 ];
 
 const BATCH_SIZE = 20;
@@ -150,7 +150,7 @@ export function PromptGenerator({ hasActiveKeys, apiKeys }: PromptGeneratorProps
     openrouter: apiKeys.some(k => k.provider === 'openrouter' && k.is_active),
     gemini: apiKeys.some(k => k.provider === 'gemini' && k.is_active),
     nvidia: apiKeys.some(k => k.provider === 'nvidia' && k.is_active),
-    '9router': apiKeys.some(k => k.provider === '9router' && k.is_active),
+    '9router': apiKeys.some(k => k.provider === '9router' && k.is_active),\n    custom: apiKeys.some(k => k.provider === 'custom' && k.is_active),
   };
   const hasActiveProviderKeys = useSourceOwner ? true : providerKeyMap[provider];
   const currentModels = getModelsForProvider(provider);
@@ -158,8 +158,12 @@ export function PromptGenerator({ hasActiveKeys, apiKeys }: PromptGeneratorProps
 
   const handleProviderChange = (newProvider: ProviderType) => {
     setProvider(newProvider);
-    const models = getModelsForProvider(newProvider);
-    setModel(models[0].value);
+    if (newProvider === 'custom') {
+      setModel('');
+    } else {
+      const models = getModelsForProvider(newProvider);
+      if (models.length > 0) setModel(models[0].value);
+    }
   };
 
   const handleCountChange = (value: string) => {
@@ -347,10 +351,22 @@ export function PromptGenerator({ hasActiveKeys, apiKeys }: PromptGeneratorProps
             </div>
             <div className="space-y-2">
               <Label htmlFor="model">Model</Label>
-              <Select value={model} onValueChange={setModel} disabled={!hasActiveKeys || loading}>
-                <SelectTrigger className="h-11 bg-muted/50 border-border"><SelectValue /></SelectTrigger>
-                <SelectContent>{currentModels.map((m) => (<SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>))}</SelectContent>
-              </Select>
+              {provider === 'custom' ? (
+                <Input
+                  id="model"
+                  type="text"
+                  placeholder="e.g., meta-llama-3-70b-instruct"
+                  value={model}
+                  onChange={(e) => setModel(e.target.value)}
+                  className="h-11 bg-muted/50 border-border"
+                  disabled={!hasActiveKeys || loading}
+                />
+              ) : (
+                <Select value={model} onValueChange={setModel} disabled={!hasActiveKeys || loading}>
+                  <SelectTrigger className="h-11 bg-muted/50 border-border"><SelectValue /></SelectTrigger>
+                  <SelectContent>{currentModels.map((m) => (<SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>))}</SelectContent>
+                </Select>
+              )}
             </div>
           </div>
           )}

@@ -28,7 +28,7 @@ const MAX_BATCH_SIZE = 25;
 const VALID_OUTPUT_TYPES = ['photo', 'video', 'vector', 'illustration', 'typography', 'ui_screen'];
 const VALID_STYLE_MODES = ['cinematic', 'glitch', 'retro', 'cyberpunk', 'minimal', 'analog', 'neon', 'vintage'];
 const VALID_MOODS = ['dark', 'calm', 'futuristic', 'horror', 'energetic', 'dreamy', 'mysterious', 'uplifting'];
-const VALID_PROVIDERS = ['groq', 'openrouter', 'gemini', 'nvidia', '9router'];
+const VALID_PROVIDERS = \['groq', 'openrouter', 'gemini', 'nvidia', '9router', 'custom'\];
 
 const PROVIDER_ENDPOINTS: Record<string, string> = {
   groq: 'https://api.groq.com/openai/v1/chat/completions',
@@ -36,9 +36,10 @@ const PROVIDER_ENDPOINTS: Record<string, string> = {
   nvidia: 'https://integrate.api.nvidia.com/v1/chat/completions',
 };
 
-function resolve9RouterEndpoint(customEndpoint: string | null | undefined): string {
+function resolveCustomEndpoint(customEndpoint: string | null | undefined): string {
   const base = (customEndpoint || '').trim().replace(/\/+$/, '');
-  if (!base) throw new Error("9Router endpoint URL is missing for this API key.");
+  if (!base) throw new Error("Endpoint URL is missing for this API key.");
+  if (/\/chat\/completions$/i.test(base)) return base;
   if (/\/v1$/i.test(base)) return `${base}/chat/completions`;
   return `${base}/v1/chat/completions`;
 }
@@ -256,9 +257,9 @@ async function generateBatch(
     content = data.candidates?.[0]?.content?.parts?.[0]?.text;
     tokensUsed = data.usageMetadata?.totalTokenCount || 0;
   } else {
-    // OpenAI-compatible format (Groq, OpenRouter, NVIDIA NIM, 9Router)
-    const endpoint = provider === '9router'
-      ? resolve9RouterEndpoint(customEndpoint)
+    // OpenAI-compatible format (Groq, OpenRouter, NVIDIA NIM, 9Router, custom)
+    const endpoint = (provider === '9router' || provider === 'custom')
+      ? resolveCustomEndpoint(customEndpoint)
       : PROVIDER_ENDPOINTS[provider];
     const headers: Record<string, string> = {
       "Authorization": `Bearer ${apiKey}`,
@@ -273,7 +274,7 @@ async function generateBatch(
       groq: "llama-3.3-70b-versatile",
       openrouter: "meta-llama/llama-3.3-70b-instruct:free",
       nvidia: "stepfun-ai/step-3.5-flash",
-      '9router': "claude-sonnet-4.6",
+      '9router': \"claude-sonnet-4.6\",\n      custom: \"\",
     };
 
     const requestBody: Record<string, unknown> = {
@@ -285,7 +286,7 @@ async function generateBatch(
       temperature: 0.9,
       max_tokens: 3000,
     };
-    if (provider === 'nvidia' || provider === '9router') {
+    if (provider === 'nvidia' || provider === '9router' || provider === 'custom') {
       requestBody.stream = false;
     }
 
@@ -380,7 +381,7 @@ async function generateSingleBatchWithRotation(
   const availableKeys = getAvailableKeys(keys, provider);
 
   if (availableKeys.length === 0) {
-    const providerLabels: Record<string, string> = { groq: 'Groq', openrouter: 'OpenRouter', gemini: 'Gemini', nvidia: 'NVIDIA NIM', '9router': '9Router' };
+    const providerLabels: Record<string, string> = { groq: 'Groq', openrouter: 'OpenRouter', gemini: 'Gemini', nvidia: 'NVIDIA NIM', '9router': '9Router', custom: 'Custom (OpenAI-Compatible)' };
     const providerName = providerLabels[provider] || provider;
     throw new Error(`No active ${providerName} API keys available. Please add a key or wait for cooldown.`);
   }
@@ -510,7 +511,7 @@ serve(async (req) => {
 
     const providerKeys = keys.filter(k => k.provider === validProvider);
     if (providerKeys.length === 0) {
-      const providerLabels: Record<string, string> = { groq: 'Groq', openrouter: 'OpenRouter', gemini: 'Gemini', nvidia: 'NVIDIA NIM', '9router': '9Router' };
+      const providerLabels: Record<string, string> = { groq: 'Groq', openrouter: 'OpenRouter', gemini: 'Gemini', nvidia: 'NVIDIA NIM', '9router': '9Router', custom: 'Custom (OpenAI-Compatible)' };
       const providerName = providerLabels[validProvider] || validProvider;
       return new Response(JSON.stringify({ error: `No active ${providerName} API keys found.` }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }

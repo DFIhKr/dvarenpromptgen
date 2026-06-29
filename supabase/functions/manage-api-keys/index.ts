@@ -26,17 +26,17 @@ const PROVIDER_CONFIGS = {
     minLength: 20,
     maxLength: 200,
   },
-  nvidia: {
-    prefix: 'nvapi-',
-    name: 'NVIDIA NIM',
-    minLength: 20,
-    maxLength: 300,
-  },
   '9router': {
     prefix: 'sk-',
     name: '9Router',
     minLength: 20,
     maxLength: 300,
+  },
+  custom: {
+    prefix: '',
+    name: 'Custom (OpenAI-Compatible)',
+    minLength: 1,
+    maxLength: 500,
   },
 };
 
@@ -81,7 +81,7 @@ serve(async (req) => {
     }
 
     if (action === "add") {
-      const validProviders = ['groq', 'openrouter', 'gemini', 'nvidia', '9router'];
+      const validProviders = \['groq', 'openrouter', 'gemini', 'nvidia', '9router', 'custom'\];
       if (!validProviders.includes(provider)) {
         return new Response(
           JSON.stringify({ error: "Invalid provider" }),
@@ -122,10 +122,10 @@ serve(async (req) => {
         : null;
 
       let sanitizedEndpoint: string | null = null;
-      if (provider === '9router') {
+      if (provider === '9router' || provider === 'custom') {
         if (!customEndpoint || typeof customEndpoint !== 'string' || !customEndpoint.trim()) {
           return new Response(
-            JSON.stringify({ error: "9Router endpoint URL is required" }),
+            JSON.stringify({ error: `${providerConfig.name} endpoint URL is required` }),
             { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
           );
         }

@@ -20,7 +20,7 @@ import {
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Plus, Key, Loader2, ExternalLink } from 'lucide-react';
 
-type ProviderValue = 'groq' | 'openrouter' | 'gemini' | 'nvidia' | '9router';
+type ProviderValue = 'groq' | 'openrouter' | 'gemini' | 'nvidia' | '9router' | 'custom';
 
 interface AddApiKeyDialogProps {
   onAdd: (apiKey: string, provider: ProviderValue, label?: string, customEndpoint?: string) => Promise<void>;
@@ -69,9 +69,15 @@ const PROVIDERS = [
     url: 'https://router.dvaren.online/',
     urlLabel: 'router.dvaren.online',
   },
+  {
+    value: 'custom' as const,
+    label: 'Custom (OpenAI-Compatible)',
+    placeholder: 'sk-... or any key',
+    prefix: '',
+    url: 'https://platform.openai.com/docs/api-reference',
+    urlLabel: 'Provider Docs',
+  },
 ];
-
-export function AddApiKeyDialog({ onAdd, disabled, keyCount }: AddApiKeyDialogProps) {
   const [open, setOpen] = useState(false);
   const [provider, setProvider] = useState<ProviderValue>('groq');
   const [apiKey, setApiKey] = useState('');
@@ -101,7 +107,7 @@ export function AddApiKeyDialog({ onAdd, disabled, keyCount }: AddApiKeyDialogPr
     e.preventDefault();
     const cleanedKey = sanitizeApiKey(apiKey);
     if (!cleanedKey) return;
-    if (provider === '9router' && !customEndpoint.trim()) return;
+    if ((provider === '9router' || provider === 'custom') && !customEndpoint.trim()) return;
 
     setLoading(true);
     try {
@@ -109,7 +115,7 @@ export function AddApiKeyDialog({ onAdd, disabled, keyCount }: AddApiKeyDialogPr
         cleanedKey,
         provider,
         label.trim() || undefined,
-        provider === '9router' ? customEndpoint.trim() : undefined,
+        (provider === '9router' || provider === 'custom') ? customEndpoint.trim() : undefined,
       );
       setApiKey('');
       setLabel('');
@@ -190,20 +196,20 @@ export function AddApiKeyDialog({ onAdd, disabled, keyCount }: AddApiKeyDialogPr
             />
           </div>
 
-          {provider === '9router' && (
+          {(provider === '9router' || provider === 'custom') && (
             <div className="space-y-2">
-              <Label htmlFor="customEndpoint">9Router Endpoint URL *</Label>
+              <Label htmlFor="customEndpoint">{provider === 'custom' ? 'Custom Endpoint URL *' : '9Router Endpoint URL *'}</Label>
               <Input
                 id="customEndpoint"
                 type="url"
-                placeholder="https://your-tunnel.9router.com/v1"
+                placeholder={provider === 'custom' ? "https://api.example.com/v1" : "https://your-tunnel.9router.com/v1"}
                 value={customEndpoint}
                 onChange={(e) => setCustomEndpoint(e.target.value)}
                 required
                 className="h-11 bg-muted/50 border-border font-mono text-sm"
               />
               <p className="text-xs text-muted-foreground">
-                Your personal 9Router base URL. This will be used for API calls.
+                Your API base URL. This will be used for API calls.
               </p>
             </div>
           )}
@@ -230,7 +236,7 @@ export function AddApiKeyDialog({ onAdd, disabled, keyCount }: AddApiKeyDialogPr
             </Button>
             <Button
               type="submit"
-              disabled={loading || !apiKey.trim() || (provider === '9router' && !customEndpoint.trim())}
+              disabled={loading || !apiKey.trim() || ((provider === '9router' || provider === 'custom') && !customEndpoint.trim())}
               className="bg-primary text-primary-foreground hover:bg-primary/90"
             >
               {loading ? (

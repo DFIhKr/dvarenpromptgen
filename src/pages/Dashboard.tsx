@@ -14,7 +14,7 @@ interface ApiKey {
   id: string;
   key_hint: string;
   label: string | null;
-  provider: 'groq' | 'openrouter' | 'gemini' | 'nvidia' | '9router';
+  provider: 'groq' | 'openrouter' | 'gemini' | 'nvidia' | '9router' | 'custom';
   is_active: boolean;
   created_at: string;
 }
@@ -50,7 +50,7 @@ export default function Dashboard() {
     fetchApiKeys();
   }, []);
 
-  const handleAddKey = async (apiKey: string, provider: 'groq' | 'openrouter' | 'gemini' | 'nvidia' | '9router', label?: string, customEndpoint?: string) => {
+  const handleAddKey = async (apiKey: string, provider: 'groq' | 'openrouter' | 'gemini' | 'nvidia' | '9router' | 'custom', label?: string, customEndpoint?: string) => {
     try {
       const { data, error } = await supabase.functions.invoke('manage-api-keys', {
         body: { action: 'add', apiKey, provider, label, customEndpoint },
