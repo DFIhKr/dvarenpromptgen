@@ -274,7 +274,8 @@ async function generateBatch(
       groq: "llama-3.3-70b-versatile",
       openrouter: "meta-llama/llama-3.3-70b-instruct:free",
       nvidia: "stepfun-ai/step-3.5-flash",
-      '9router': \"claude-sonnet-4.6\",\n      custom: \"\",
+      '9router': "claude-sonnet-4.6",
+      custom: "",
     };
 
     const requestBody: Record<string, unknown> = {
