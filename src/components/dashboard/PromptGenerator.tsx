@@ -76,7 +76,8 @@ function getModelsForProvider(p: ProviderType) {
     case 'openrouter': return OPENROUTER_MODELS;
     case 'gemini': return GEMINI_MODELS;
     case 'nvidia': return NVIDIA_MODELS;
-    case '9router': return NINE_ROUTER_MODELS;\n    case 'custom': return [];
+    case '9router': return NINE_ROUTER_MODELS;
+    case 'custom': return [];
   }
 }
 
@@ -118,7 +119,8 @@ const PROVIDERS: { value: ProviderType; label: string }[] = [
   { value: 'openrouter', label: 'OpenRouter' },
   { value: 'gemini', label: 'Gemini' },
   { value: 'nvidia', label: 'NVIDIA NIM' },
-  { value: '9router', label: '9Router' },\n  { value: 'custom', label: 'Custom (OpenAI)' },
+  { value: '9router', label: '9Router' },
+  { value: 'custom', label: 'Custom (OpenAI)' },
 ];
 
 const BATCH_SIZE = 20;
@@ -150,7 +152,8 @@ export function PromptGenerator({ hasActiveKeys, apiKeys }: PromptGeneratorProps
     openrouter: apiKeys.some(k => k.provider === 'openrouter' && k.is_active),
     gemini: apiKeys.some(k => k.provider === 'gemini' && k.is_active),
     nvidia: apiKeys.some(k => k.provider === 'nvidia' && k.is_active),
-    '9router': apiKeys.some(k => k.provider === '9router' && k.is_active),\n    custom: apiKeys.some(k => k.provider === 'custom' && k.is_active),
+    '9router': apiKeys.some(k => k.provider === '9router' && k.is_active),
+    custom: apiKeys.some(k => k.provider === 'custom' && k.is_active),
   };
   const hasActiveProviderKeys = useSourceOwner ? true : providerKeyMap[provider];
   const currentModels = getModelsForProvider(provider);

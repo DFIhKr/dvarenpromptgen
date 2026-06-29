@@ -78,6 +78,8 @@ const PROVIDERS = [
     urlLabel: 'Provider Docs',
   },
 ];
+
+export function AddApiKeyDialog({ onAdd, disabled, keyCount }: AddApiKeyDialogProps) {
   const [open, setOpen] = useState(false);
   const [provider, setProvider] = useState<ProviderValue>('groq');
   const [apiKey, setApiKey] = useState('');
