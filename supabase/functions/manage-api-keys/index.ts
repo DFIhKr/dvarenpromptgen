@@ -81,7 +81,7 @@ serve(async (req) => {
     }
 
     if (action === "add") {
-      const validProviders = \['groq', 'openrouter', 'gemini', 'nvidia', '9router', 'custom'\];
+      const validProviders = ['groq', 'openrouter', 'gemini', 'nvidia', '9router', 'custom'];
       if (!validProviders.includes(provider)) {
         return new Response(
           JSON.stringify({ error: "Invalid provider" }),
