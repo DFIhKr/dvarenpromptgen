@@ -89,7 +89,7 @@ function getAvailableKeys(keys: ApiKeyRecord[], provider: string): ApiKeyRecord[
 }
 
 function sanitizeTheme(theme: string): string {
-  return theme.slice(0, MAX_THEME_LENGTH).replace(/[<>&"'\]/g, '').trim();
+  return theme.slice(0, MAX_THEME_LENGTH).replace(/[<>&"']/g, '').trim();
 }
 
 function sanitizeNegativePrompt(negativePrompt: string | null): string | null {
