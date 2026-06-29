@@ -94,7 +94,7 @@ function sanitizeTheme(theme: string): string {
 
 function sanitizeNegativePrompt(negativePrompt: string | null): string | null {
   if (!negativePrompt) return null;
-  return negativePrompt.slice(0, MAX_NEGATIVE_PROMPT_LENGTH).replace(/[<>&"'\]/g, '').trim() || null;
+  return negativePrompt.slice(0, MAX_NEGATIVE_PROMPT_LENGTH).replace(/[<>&"']/g, '').trim() || null;
 }
 
 function getOutputTypeLabel(outputType: string): string {
