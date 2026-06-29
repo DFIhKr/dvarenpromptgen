@@ -28,7 +28,7 @@ const MAX_BATCH_SIZE = 25;
 const VALID_OUTPUT_TYPES = ['photo', 'video', 'vector', 'illustration', 'typography', 'ui_screen'];
 const VALID_STYLE_MODES = ['cinematic', 'glitch', 'retro', 'cyberpunk', 'minimal', 'analog', 'neon', 'vintage'];
 const VALID_MOODS = ['dark', 'calm', 'futuristic', 'horror', 'energetic', 'dreamy', 'mysterious', 'uplifting'];
-const VALID_PROVIDERS = \['groq', 'openrouter', 'gemini', 'nvidia', '9router', 'custom'\];
+const VALID_PROVIDERS = ['groq', 'openrouter', 'gemini', 'nvidia', '9router', 'custom'];
 
 const PROVIDER_ENDPOINTS: Record<string, string> = {
   groq: 'https://api.groq.com/openai/v1/chat/completions',
@@ -89,12 +89,12 @@ function getAvailableKeys(keys: ApiKeyRecord[], provider: string): ApiKeyRecord[
 }
 
 function sanitizeTheme(theme: string): string {
-  return theme.slice(0, MAX_THEME_LENGTH).replace(/[<>&"'\\]/g, '').trim();
+  return theme.slice(0, MAX_THEME_LENGTH).replace(/[<>&"'\]/g, '').trim();
 }
 
 function sanitizeNegativePrompt(negativePrompt: string | null): string | null {
   if (!negativePrompt) return null;
-  return negativePrompt.slice(0, MAX_NEGATIVE_PROMPT_LENGTH).replace(/[<>&"'\\]/g, '').trim() || null;
+  return negativePrompt.slice(0, MAX_NEGATIVE_PROMPT_LENGTH).replace(/[<>&"'\]/g, '').trim() || null;
 }
 
 function getOutputTypeLabel(outputType: string): string {
